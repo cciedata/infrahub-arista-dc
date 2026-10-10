@@ -1,0 +1,104 @@
+# DC3 FW stand-ins (FRR): Internal, Internet, SD-WAN hub and VPN-partner FW, and the branch and
+# partner stand-ins rendered from the SD-WAN / VPN-partner FW. One query for all FW families:
+# the device (interfaces with addresses, parents, members), its attachments (with the
+# leaf pair's ASNs: DC3 leaves have one ASN per pair), the site's L2 VLANs,
+# the ISP routers' edge addresses, the branches with a hub in the site and the partners.
+query Dc3FrrFw($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        asn { node { asn { value } } }
+        primary_address { node { address { value } } }
+        location {
+          node {
+            ... on LocationSite {
+              name { value }
+              owned_prefixes { edges { node { prefix { value } } } }
+              vrfs {
+                edges {
+                  node {
+                    name { value }
+                    summaries { edges { node { prefix { value } site { node { name { value } } } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } }
+              ... on InterfacePhysical { port_channel { node { name { value } } } }
+              ... on InterfacePortChannel { members { edges { node { name { value } } } } }
+              ... on InterfaceVirtual { parent_interface { node { ... on DcimInterface { name { value } } } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  FabricAttachment(devices__name__value: $device) {
+    edges {
+      node {
+        name { value }
+        vlan_id { value }
+        prefix { node { prefix { value } } }
+        vrf { node { name { value } } }
+        switch_pair { node { name { value } members { edges { node { name { value } asn { node { asn { value } } } } } } } }
+      }
+    }
+  }
+  FabricL2Vlan {
+    edges {
+      node {
+        name { value }
+        vlan_id { value }
+        prefix { node { prefix { value } } }
+        site { node { name { value } } }
+        switch_pair { node { name { value } } }
+      }
+    }
+  }
+  IspRouters: DcimDevice(role__value: "isp_router") {
+    edges {
+      node {
+        name { value }
+        location { node { name { value } } }
+        asn { node { asn { value } } }
+        interfaces(role__value: "peering") {
+          edges { node { __typename name { value } ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } } } }
+        }
+      }
+    }
+  }
+  FabricBranch {
+    edges {
+      node {
+        name { value }
+        branch_id { value }
+        lan_prefix { node { prefix { value } } }
+        hubs { edges { node { name { value } } } }
+      }
+    }
+  }
+  FabricPartner {
+    edges {
+      node {
+        name { value }
+        description { value }
+        peer_ip { value }
+        protected_prefixes { value }
+        translated_prefixes { edges { node { prefix { value } site { node { name { value } } } } } }
+      }
+    }
+  }
+}

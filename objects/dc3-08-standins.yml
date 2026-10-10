@@ -1,0 +1,92 @@
+---
+# DC3: what the FRR stand-ins need before the dc3_site generator run.
+# PARTNER01 carries only its DC3 /28 and the branches list only the DC3 hub.
+# This file defines the platform, manufacturer and device type of the stand-ins; the stand-in devices,
+# their interfaces and addresses are written by generator dc3_site.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: OrganizationManufacturer
+  data:
+    - name: FRRouting
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: DcimPlatform
+  data:
+    - name: FRR
+      manufacturer: FRRouting
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: DcimDeviceType
+  data:
+    # not verified: whether `height` is mandatory in the running schema (the Arista types set it; a container has none)
+    - name: FRR stand-in
+      manufacturer: FRRouting
+      part_number: quay.io/frrouting/frr:10.6.0
+      description: Linux container running FRR 10.6.0; lab stand-in for a FW, ISP router or cloud router
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: CoreStandardGroup
+  data:
+    # Artifact targets of the FRR stand-in scripts; members added by generator dc3_site (add only)
+    - name: dc3-internal-fws
+      description: DC3 Internal FW stand-in (FRR); artifact target, members added by generator dc3_site
+    - name: dc3-internet-fws
+      description: DC3 Internet FW stand-in (FRR); artifact target, members added by generator dc3_site
+    - name: dc3-sdwan-fws
+      description: DC3 SD-WAN hub FW stand-in (FRR) and its branch stand-ins; artifact target, members added by generator dc3_site
+    - name: dc3-vpn-fws
+      description: DC3 VPN-partner FW stand-in (FRR) and its partner stand-in; artifact target, members added by generator dc3_site
+    - name: dc3-isp-routers
+      description: DC3 ISP router stand-ins (FRR) and their carriers; artifact target, members added by generator dc3_site
+    - name: dc3-cloud-routers
+      description: DC3 cloud router stand-ins (FRR); artifact target, members added by generator dc3_site
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamPrefix
+  data:
+    # translated /28 of the partner stand-in = first /28 of the DC3 PARTNER block
+    - prefix: 10.24.160.0/28
+      description: PARTNER01 translated /28 (DC3 VPN-partner FW source NAT)
+      status: active
+      member_type: address
+      site: DC3
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricPartner
+  data:
+    # Sample partner; only the DC3 /28
+    - name: PARTNER01
+      description: Sample partner (documentation values)
+      peer_ip: 198.18.100.1
+      protected_prefixes: ["192.168.100.0/24"]
+      translated_prefixes:
+        - ["default", "10.24.160.0/28"]
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricBranch
+  data:
+    # the two sample branches dial the DC3 hub stand-in; lan_prefix in
+    # dc3-01-bootstrap.yml (hub DC3 only)
+    - name: BR001
+      branch_id: 1
+      description: Sample branch 1 (used for the branch lab stand-in later)
+      lan_prefix: ["default", "10.64.1.0/24"]
+      hubs: [DC3]
+    - name: BR002
+      branch_id: 2
+      description: Sample branch 2
+      lan_prefix: ["default", "10.64.2.0/24"]
+      hubs: [DC3]

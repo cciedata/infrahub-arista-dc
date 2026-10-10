@@ -1,0 +1,444 @@
+{# DC3 border and service leaves (Arista EOS 4.36.2F) startup-config.
+   MLAG pairs BL1-BL2 and SL1-SL2: MLAG + shared anycast VTEP on Loopback1, eBGP underlay/overlay to both spines,
+   iBGP underlay to the MLAG peer over Vlan3900.
+   Service attachments: the pair's FabricAttachments give the VRFs (BL: TRANSIT, PARTNER;
+   SL: TRANSIT + the Internal FW tenant VRFs), one VLAN + SVI (.1 / .2 of the /29, BFD 999 x 3) per attachment, routed to
+   the FRR stand-in (.3) over the MLAG port-channel, eBGP per VRF with prefix-lists and route-maps.
+   Toward the Internal FW the service leaves send each tenant VRF's summary only; the FW returns routes with
+   only its own AS (set on the FW side), so no as-override / allowas-in is needed here.
+   Lines whose EOS syntax is not verified carry a Jinja comment that says what to check. #}
+{# Decided constants: one place to change them (plans/dc3-values.md) #}
+{% set mgmt_vrf = "MGMT" -%}
+{% set keepalive_vrf = "VPC-KEEPALIVE" -%}                     {#- MLAG heartbeat VRF on the keepalive link -#}
+{% set bfd_timers = "interval 999 min-rx 999 multiplier 3" -%}
+{% set pg_underlay = "IPV4-UNDERLAY-PEERS" -%}
+{% set pg_overlay = "EVPN-OVERLAY-PEERS" -%}
+{% set pg_mlag = "MLAG-IPV4-UNDERLAY-PEER" -%}                 {#- iBGP to the MLAG peer over Vlan3900 -#}
+{% set max_paths = "4 ecmp 4" -%}
+{% set ebgp_multihop = 3 -%}
+{% set route_map = "RM-CONN-2-BGP" -%}
+{% set prefix_list = "PL-LOOPBACKS" -%}
+{% set pl_pools = ["LOOPBACK0", "LOOPBACK1-VTEP", "ANYCAST-VTEP"] -%}  {#- Loopback1 carries the anycast VTEP on MLAG pairs, so the anycast pool is in the list -#}
+{% set pl_seq_step = 10 -%}                                    {#- prefix-list seq 10, 20, 30 -#}
+{% set rm_seq = 10 -%}                                         {#- route-map sequence 10 -#}
+{% set vxlan_port = 4789 -%}
+{% set anycast_gw_mac = "0200.0000.00aa" -%}
+{% set mlag_vlan = 3900 -%}
+{% set mlag_vlan_name = "VPC-BACKUP-UNDERLAY" -%}              {#- name of VLAN 3900 -#}
+{% set mlag_trunk_group = "MLAGPEER" -%}                       {#- trunk group of the MLAG peer VLAN -#}
+{% set heartbeat_interval = 4000 -%}
+{% set dual_primary_detection = "delay 5 action errdisable all-interfaces" -%}
+{% set dual_primary_recovery = "mlag 360 non-mlag 300" -%}
+{% set reload_delay_mlag = 360 -%}                             {#- MLAG reload delay -#}
+{% set reload_delay_non_mlag = 360 -%}                         {#- MLAG reload delay, non-MLAG ports -#}
+{% set lacp_mode = "active" -%}
+{% set rt_asn = 65300 -%}
+{% set transit_vrf = "TRANSIT" -%}                             {#- transit VRF name -#}
+{% set static_summary_vrfs = ["PARTNER"] -%}                   {#- PARTNER summary = Null0 static + network -#}
+{% set rm_tag = {"sdwan_fw": "SDWAN", "cloud_router": "CLOUD"} -%}  {#- route-map suffix per attached role (else FW) -#}
+{% set branch_summary = "10.64.0.0/12" -%}                     {#- branch summary, learned from the SD-WAN FW -#}
+{% set no_branch_vrfs = ["PARTNER"] -%}                        {#- never PARTNER toward the SD-WAN -#}
+{% set partner_nat_len = 28 -%}                                {#- translated /28 per partner -#}
+{% set seq_step = 10 -%}                                       {#- prefix-list / route-map sequence step -#}
+{% set standin_host = 3 -%}                                    {#- stand-in address: .3 of the attachment /29 -#}
+{% set cloud_blocks = ["172.16.0.0/13", "172.30.0.0/15"] -%}   {#- cloud blocks: AWS, Azure -#}
+{% set cloud_le = 24 -%}                                       {#- longest prefix accepted in PL-CLOUD -#}
+{% macro vlan_ranges(ids) %}{% set ns = namespace(out=[], start=none, prev=none) %}{% for v in ids %}{% if ns.start is none %}{% set ns.start = v %}{% elif v != ns.prev + 1 %}{% set ns.out = ns.out + [ns.start ~ ("-" ~ ns.prev if ns.prev != ns.start else "")] %}{% set ns.start = v %}{% endif %}{% set ns.prev = v %}{% endfor %}{% if ns.start is not none %}{% set ns.out = ns.out + [ns.start ~ ("-" ~ ns.prev if ns.prev != ns.start else "")] %}{% endif %}{{ ns.out | join(",") }}{% endmacro -%}
+{% macro peer31(cidr) %}{% set o = cidr.split("/")[0].split(".") %}{% set last = o[3] | int %}{{ o[:3] | join(".") }}.{{ last + 1 if last % 2 == 0 else last - 1 }}{% endmacro -%}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set physical = interfaces | selectattr("__typename", "equalto", "InterfacePhysical") | list -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set lo0 = virtual | selectattr("name.value", "equalto", "Loopback0") | list | first -%}
+{% set lo1 = virtual | selectattr("name.value", "equalto", "Loopback1") | list | first -%}
+{% set lo2 = virtual | selectattr("name.value", "equalto", "Loopback2") | list | first -%}  {#- per-switch VTEP address, MLAG VTEP members only -#}
+{% set mgmt = physical | selectattr("role.value", "equalto", "management") | list | first -%}
+{% set core_all = physical | selectattr("role.value", "equalto", "core") | list -%}
+{% set eth_all = physical | selectattr("role.value", "in", ["core", "vpc_keepalive", "vpc_peer_link", "peering"]) | list -%}
+{% set eth_names = eth_all | map(attribute="name.value") | list | sort_interface_list -%}
+{% set core_names = core_all | map(attribute="name.value") | list | sort_interface_list -%}
+{% set pair = device.switch_pair.node -%}
+{# Attachments of the pair, their VRFs, the site's summaries (DC3 has no Multi-Site: only summaries of this site) #}
+{% set attachments = pair.attachments.edges | map(attribute="node") | list | sort(attribute="vlan_id.value") -%}
+{% set vrf_ns = namespace(items=[]) -%}
+{% for name in attachments | map(attribute="vrf.node.name.value") | unique | list | sort %}{% set vrf_ns.items = vrf_ns.items + [(attachments | selectattr("vrf.node.name.value", "equalto", name) | list | first).vrf.node] %}{% endfor -%}
+{% set vrfs = vrf_ns.items -%}
+{% set summ_ns = namespace(pairs=[]) -%}
+{% for v in device.location.node.vrfs.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for s in v.summaries.edges | map(attribute="node") | list | sort(attribute="prefix.value") %}{% if s.site.node is not none and s.site.node.name.value == site_name %}{% set summ_ns.pairs = summ_ns.pairs + [(v.name.value, s.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% set site_summaries = summ_ns.pairs | rejectattr("0", "equalto", transit_vrf) | map(attribute="1") | unique | list -%}
+{% set is_border = device.role.value == "border_leaf" -%}
+{% set cloud_atts = attachments | selectattr("devices.edges.0.node.role.value", "equalto", "cloud_router") | list -%}
+{% set sdwan_atts = attachments | selectattr("devices.edges.0.node.role.value", "equalto", "sdwan_fw") | list -%}
+{% set sdwan_out = summ_ns.pairs | rejectattr("0", "equalto", transit_vrf) | rejectattr("0", "in", no_branch_vrfs) | map(attribute="1") | unique | list -%}
+{% set att_pos = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | selectattr("role.value", "equalto", "peering") | list -%}
+{% set att_po_names = att_pos | map(attribute="name.value") | list | sort_interface_list -%}
+{# Trunk VLANs of one attach port-channel = the attachments of the stand-in named first in its description #}
+{% macro far_vlans(desc) %}{% set far = desc.split(" ")[0] %}{% set ns = namespace(ids=[]) %}{% for a in attachments %}{% if far in (a.devices.edges | map(attribute="node.name.value") | list) %}{% set ns.ids = ns.ids + [a.vlan_id.value] %}{% endif %}{% endfor %}{{ vlan_ranges(ns.ids | sort) }}{% endmacro -%}
+{# Route-maps per VRF: (name, seq, prefix-list) #}
+{% set rm_ns = namespace(rows=[]) -%}
+{% for vrf in vrfs %}{% set v = vrf.name.value %}
+{%- if v == transit_vrf %}{% set out_pl = "PL-" ~ transit_vrf ~ "-SUMMARY" if is_border else "PL-DEFAULT" %}{% set in_pl = "PL-DEFAULT" if is_border else "PL-" ~ transit_vrf ~ "-SUMMARY" %}
+{%- elif is_border %}{% set out_pl = "PL-DEFAULT" %}{% set in_pl = "PL-" ~ v ~ "-NAT" %}
+{%- else %}{% set out_pl = "PL-" ~ v ~ "-SUMMARY" %}{% set in_pl = "PL-DEFAULT" %}{% endif %}
+{%- if (attachments | selectattr("vrf.node.name.value", "equalto", v) | rejectattr("devices.edges.0.node.role.value", "in", ["cloud_router", "sdwan_fw"]) | list) %}
+{%- set rm_ns.rows = rm_ns.rows + [("RM-" ~ v ~ "-FROM-FW", seq_step, in_pl), ("RM-" ~ v ~ "-TO-FW", seq_step, out_pl)] %}{% endif %}{% endfor -%}
+{% if cloud_atts %}{% set rm_ns.rows = rm_ns.rows + [("RM-" ~ transit_vrf ~ "-FROM-CLOUD", seq_step, "PL-CLOUD"), ("RM-" ~ transit_vrf ~ "-TO-CLOUD", seq_step, "PL-DEFAULT"), ("RM-" ~ transit_vrf ~ "-TO-CLOUD", 2 * seq_step, "PL-" ~ transit_vrf ~ "-SUMMARY")] %}{% endif -%}
+{% if sdwan_atts %}{% set rm_ns.rows = rm_ns.rows + [("RM-" ~ transit_vrf ~ "-FROM-SDWAN", seq_step, "PL-BRANCH-SUMMARY"), ("RM-" ~ transit_vrf ~ "-TO-SDWAN", seq_step, "PL-" ~ transit_vrf ~ "-SDWAN-OUT")] %}{% if cloud_atts %}{% set rm_ns.rows = rm_ns.rows + [("RM-" ~ transit_vrf ~ "-TO-SDWAN", 2 * seq_step, "PL-CLOUD")] %}{% endif %}{% endif -%}
+{% set is_mlag = pair is not none and pair.__typename == "FabricVpcDomain" -%}
+{# Device name -> (name, ASN, Loopback0 IP), from FabricAutonomousSystem.devices #}
+{% set as_ns = namespace(rows=[]) -%}
+{% for a in data.FabricAutonomousSystem.edges | map(attribute="node") %}{% for d in a.devices.edges | map(attribute="node") %}{% set los = d.interfaces.edges | map(attribute="node") | selectattr("name.value", "equalto", "Loopback0") | list %}{% set as_ns.rows = as_ns.rows + [(d.name.value, a.asn.value, (los[0].ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") | string) if los and los[0].ip_addresses.edges else none)] %}{% endfor %}{% endfor -%}
+{# Underlay neighbors: other address of each core /31; peer device = first word of the description #}
+{% set ul_ns = namespace(rows=[], spines=[]) -%}
+{% for name in core_names %}{% set intf = core_all | selectattr("name.value", "equalto", name) | list | first %}{% set peer_name = intf.description.value.split(" ")[0] %}{% set ul_ns.rows = ul_ns.rows + [(peer31(intf.ip_addresses.edges[0].node.address.value), peer_name)] %}{% if peer_name not in ul_ns.spines %}{% set ul_ns.spines = ul_ns.spines + [peer_name] %}{% endif %}{% endfor -%}
+{% set ov_ns = namespace(rows=[], asns=[]) -%}
+{% for s in ul_ns.spines %}{% set row = as_ns.rows | selectattr("0", "equalto", s) | list | first %}{% set ov_ns.rows = ov_ns.rows + [row] %}{% if row[1] not in ov_ns.asns %}{% set ov_ns.asns = ov_ns.asns + [row[1]] %}{% endif %}{% endfor -%}
+{% set spine_asn = ov_ns.asns | first -%}
+{# Prefix-list entries: the source prefixes of the DC3 loopback / VTEP pools #}
+{% set pl_ns = namespace(items=[]) -%}
+{% for suffix in pl_pools %}{% set pool = data.CoreIPAddressPool.edges | map(attribute="node") | selectattr("name.value", "equalto", site_name ~ "-" ~ suffix) | list | first %}{% for r in pool.resources.edges %}{% set pl_ns.items = pl_ns.items + [r.node.prefix.value] %}{% endfor %}{% endfor -%}
+{# Values derived by rule #}
+{% set lo0_addr = lo0.ip_addresses.edges[0].node.address.value -%}
+{% set router_id = lo0_addr | ipaddress_interface("ip") -%}
+{% set mgmt_addr = mgmt.ip_addresses.edges[0].node.address.value -%}
+{% set mgmt_gw = mgmt_addr | ipaddress_interface("network") | string | get_first_usable -%}
+{% if is_mlag -%}
+{% set peer = pair.members.edges | map(attribute="node") | rejectattr("name.value", "equalto", device.name.value) | list | first -%}
+{% set peer_keepalive_ip = peer.interfaces.edges[0].node.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set keepalive = physical | selectattr("role.value", "equalto", "vpc_keepalive") | list | first -%}
+{% set svi = virtual | selectattr("role.value", "equalto", "vpc_backup") | list | first -%}
+{% set svi_addr = svi.ip_addresses.edges[0].node.address.value -%}
+{% set peer_svi_ip = peer31(svi_addr) -%}
+{% set po = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | selectattr("role.value", "equalto", "vpc_peer_link") | list | first -%}
+{% set po_number = po.name.value | replace("Port-Channel", "") -%}
+{% endif -%}
+{# Loopback1 = VTEP source. On MLAG VTEP members it has no address in the data (one address per
+   interface in the schema); the pair's anycast VTEP (FabricVpcDomain.anycast_vtep) is rendered there, and Loopback2
+   carries the switch's own address. Elsewhere Loopback1 carries the own address. #}
+{% if is_mlag and pair.anycast_vtep.node is not none -%}
+{% set vtep_addr = pair.anycast_vtep.node.address.value -%}
+{% else -%}
+{% set vtep_addr = lo1.ip_addresses.edges[0].node.address.value -%}
+{% endif -%}
+hostname {{ device.name.value }}
+!
+service routing protocols model multi-agent
+!
+{# MSTP, priority 8192 on every leaf and MLAG member; EOS syntax until the smoke test #}
+spanning-tree mode mstp
+spanning-tree mst 0 priority 8192
+!
+{# local AAA: eAPI user, secret filled at delivery time (lab/dc3_secrets.py) privilege 15 #}
+aaa authentication login default local
+aaa authorization exec default local
+!
+username dc3-automation privilege 15 role network-admin secret sha512 __DC3_AUTOMATION_HASH__
+!
+{% for a in attachments %}
+vlan {{ a.vlan_id.value }}
+   name {{ a.name.value }}
+!
+{% endfor %}
+{% if is_mlag %}
+vlan {{ mlag_vlan }}
+   name {{ mlag_vlan_name }}
+   trunk group {{ mlag_trunk_group }}
+!
+no spanning-tree vlan-id {{ mlag_vlan }}
+!
+{% endif %}
+{% set inst_ns = namespace(names=[mgmt_vrf] + (vrfs | map(attribute="name.value") | list) + ([keepalive_vrf] if is_mlag else [])) -%}
+{% for v in inst_ns.names | sort %}
+vrf instance {{ v }}
+!
+{% endfor %}
+{% for name in att_po_names %}{% set intf = att_pos | selectattr("name.value", "equalto", name) | list | first %}
+{# Trunk, allowed = the stand-in's attachment VLANs, edge trunk + BPDU guard; MLAG id = Po number.
+   `spanning-tree portfast` on a trunk port-channel: syntax not verified #}
+interface {{ intf.name.value }}
+   description {{ intf.description.value }}
+   switchport mode trunk
+   switchport trunk allowed vlan {{ far_vlans(intf.description.value) }}
+   mlag {{ intf.name.value | replace("Port-Channel", "") }}
+   spanning-tree portfast
+   spanning-tree bpduguard enable
+!
+{% endfor %}
+{% if is_mlag %}
+interface {{ po.name.value }}
+   description {{ po.description.value }}
+   switchport mode trunk
+   switchport trunk group {{ mlag_trunk_group }}
+!
+{% endif %}
+{% for name in eth_names %}{% set intf = eth_all | selectattr("name.value", "equalto", name) | list | first %}
+interface {{ intf.name.value }}
+   description {{ intf.description.value }}
+{% if intf.role.value == "core" %}
+{# EthernetN/1 names on QSFP ports, confirmed in the lab smoke test #}
+   no shutdown
+   mtu {{ intf.mtu.value }}
+   no switchport
+   ip address {{ intf.ip_addresses.edges[0].node.address.value }}
+   bfd {{ bfd_timers }}
+{% elif intf.role.value == "vpc_keepalive" %}
+{# MLAG heartbeat over a front-panel port in a non-mgmt VRF: check in the lab #}
+   no shutdown
+   mtu {{ intf.mtu.value }}
+   no switchport
+   vrf {{ keepalive_vrf }}
+   ip address {{ intf.ip_addresses.edges[0].node.address.value }}
+{% elif intf.role.value == "peering" %}
+   no shutdown
+   channel-group {{ intf.port_channel.node.name.value | replace("Port-Channel", "") }} mode {{ lacp_mode }}
+{% else %}
+   no shutdown
+   channel-group {{ po_number }} mode {{ lacp_mode }}
+{% endif %}
+!
+{% endfor %}
+interface {{ lo0.name.value }}
+   description {{ lo0.description.value }}
+   ip address {{ lo0_addr }}
+!
+interface {{ lo1.name.value }}
+   description {{ lo1.description.value }}
+   ip address {{ vtep_addr }}
+!
+{% if is_mlag %}
+interface {{ lo2.name.value }}
+   description {{ lo2.description.value }}
+   ip address {{ lo2.ip_addresses.edges[0].node.address.value }}
+!
+{% endif %}
+interface {{ mgmt.name.value }}
+   description {{ mgmt.description.value }}
+   vrf {{ mgmt_vrf }}
+   ip address {{ mgmt_addr }}
+!
+{% for a in attachments %}{% set att_svi = virtual | selectattr("name.value", "equalto", "Vlan" ~ a.vlan_id.value) | list | first %}
+interface {{ att_svi.name.value }}
+   description {{ att_svi.description.value }}
+   no shutdown
+   mtu {{ att_svi.mtu.value }}
+   vrf {{ a.vrf.node.name.value }}
+   ip address {{ att_svi.ip_addresses.edges[0].node.address.value }}
+   bfd {{ bfd_timers }}
+!
+{% endfor %}
+{% if is_mlag %}
+interface {{ svi.name.value }}
+   description {{ svi.description.value }}
+   mtu {{ svi.mtu.value }}
+   no autostate
+   ip address {{ svi_addr }}
+!
+{% endif %}
+interface Vxlan1
+   vxlan source-interface {{ lo1.name.value }}
+   vxlan udp-port {{ vxlan_port }}
+{% if is_mlag %}
+{# purpose of mlag-system-id encapsulation (syntax from AVD only) #}
+   vxlan virtual-router encapsulation mac-address mlag-system-id
+{% endif %}
+{% for vrf in vrfs %}
+   vxlan vrf {{ vrf.name.value }} vni {{ vrf.l3_vni.value }}
+{% endfor %}
+!
+ip virtual-router mac-address {{ anycast_gw_mac }}
+{% if is_mlag %}
+{# both ip virtual-router mac-address lines on one switch: check in the lab #}
+ip virtual-router mac-address mlag-peer
+{% endif %}
+!
+ip routing
+{# AVD form #}
+no ip routing vrf {{ mgmt_vrf }}
+{% for vrf in vrfs %}
+ip routing vrf {{ vrf.name.value }}
+{% endfor %}
+!
+{% if vrfs %}
+ip prefix-list PL-DEFAULT
+   seq {{ seq_step }} permit 0.0.0.0/0
+!
+{% endif %}
+{% if cloud_atts %}
+ip prefix-list PL-CLOUD
+{% for p in cloud_blocks %}
+   seq {{ loop.index * seq_step }} permit {{ p }} le {{ cloud_le }}
+{% endfor %}
+!
+{% endif %}
+{% if sdwan_atts %}
+ip prefix-list PL-BRANCH-SUMMARY
+   seq {{ seq_step }} permit {{ branch_summary }}
+!
+{% endif %}
+ip prefix-list {{ prefix_list }}
+{% for p in pl_ns.items %}
+   seq {{ loop.index * pl_seq_step }} permit {{ p }} eq 32
+{% endfor %}
+!
+{% for vrf in vrfs %}{% set v = vrf.name.value %}{% if v != transit_vrf %}
+{% set vp = summ_ns.pairs | selectattr("0", "equalto", v) | map(attribute="1") | list %}
+{% if not is_border %}
+{# PL-<VRF>-SUMMARY only where a route-map uses it (service leaves) #}
+ip prefix-list PL-{{ v }}-SUMMARY
+{% for p in vp %}
+   seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+!
+{% endif %}
+{% if is_border %}
+ip prefix-list PL-{{ v }}-NAT
+{% for p in vp %}
+   seq {{ loop.index * seq_step }} permit {{ p }} ge {{ partner_nat_len }} le {{ partner_nat_len }}
+{% endfor %}
+!
+{% endif %}
+{% endif %}{% endfor %}
+{% if vrfs %}
+ip prefix-list PL-{{ transit_vrf }}-SUMMARY
+{% for p in site_summaries %}
+   seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+!
+{% endif %}
+{% if sdwan_atts %}
+ip prefix-list PL-{{ transit_vrf }}-SDWAN-OUT
+{% for p in sdwan_out %}
+   seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+!
+{% endif %}
+ip route vrf {{ mgmt_vrf }} 0.0.0.0/0 {{ mgmt_gw }}
+{% for vrf in vrfs %}{% if vrf.name.value in static_summary_vrfs %}
+{% for p in summ_ns.pairs | selectattr("0", "equalto", vrf.name.value) | map(attribute="1") | list %}
+ip route vrf {{ vrf.name.value }} {{ p }} Null0
+{% endfor %}
+{% endif %}{% endfor %}
+!
+{% if is_mlag %}
+mlag configuration
+   domain-id {{ pair.name.value }}
+   local-interface {{ svi.name.value }}
+   peer-address {{ peer_svi_ip }}
+   peer-address heartbeat {{ peer_keepalive_ip }} vrf {{ keepalive_vrf }}
+   peer-link {{ po.name.value }}
+{# check: unit of heartbeat-interval on the 4.36.2F parser (ms per the command reference) #}
+   heartbeat-interval {{ heartbeat_interval }}
+{# check: errdisable spelling (syntax line says erridisable) #}
+   dual-primary detection {{ dual_primary_detection }}
+{# check: parser accepts the recovery delays #}
+   dual-primary recovery delay {{ dual_primary_recovery }}
+   reload-delay mlag {{ reload_delay_mlag }}
+   reload-delay non-mlag {{ reload_delay_non_mlag }}
+!
+{% endif %}
+route-map {{ route_map }} permit {{ rm_seq }}
+   match ip address prefix-list {{ prefix_list }}
+!
+{% for name, seq, pl in rm_ns.rows | sort %}
+route-map {{ name }} permit {{ seq }}
+   match ip address prefix-list {{ pl }}
+!
+{% endfor %}
+{# router bfd multihop syntax: AVD form, not in the manual pages read #}
+router bfd
+   multihop {{ bfd_timers }}
+!
+router bgp {{ asn }}
+   router-id {{ router_id }}
+{# not found in the manual pages read (AVD form) #}
+   no bgp default ipv4-unicast
+{# graceful-restart helper only; EOS syntax until the smoke test #}
+   graceful-restart-helper
+{# check: maximum-paths / ecmp ranges #}
+   maximum-paths {{ max_paths }}
+   neighbor {{ pg_underlay }} peer group
+   neighbor {{ pg_underlay }} remote-as {{ spine_asn }}
+   neighbor {{ pg_underlay }} bfd
+{% if is_mlag %}
+   neighbor {{ pg_mlag }} peer group
+   neighbor {{ pg_mlag }} remote-as {{ asn }}
+{# AVD pattern: routes from the MLAG peer resolve via Vlan3900 #}
+   neighbor {{ pg_mlag }} next-hop-self
+{% endif %}
+   neighbor {{ pg_overlay }} peer group
+   neighbor {{ pg_overlay }} remote-as {{ spine_asn }}
+   neighbor {{ pg_overlay }} update-source {{ lo0.name.value }}
+   neighbor {{ pg_overlay }} bfd
+   neighbor {{ pg_overlay }} ebgp-multihop {{ ebgp_multihop }}
+   neighbor {{ pg_overlay }} send-community
+{% for ip, peer_name in ul_ns.rows %}
+   neighbor {{ ip }} peer group {{ pg_underlay }}
+{% endfor %}
+{% if is_mlag %}
+   neighbor {{ peer_svi_ip }} peer group {{ pg_mlag }}
+{% endif %}
+{% for row in ov_ns.rows %}
+   neighbor {{ row[2] }} peer group {{ pg_overlay }}
+{% endfor %}
+   redistribute connected route-map {{ route_map }}
+   !
+   address-family evpn
+      neighbor {{ pg_overlay }} activate
+   !
+   address-family ipv4
+      neighbor {{ pg_underlay }} activate
+{% if is_mlag %}
+      neighbor {{ pg_mlag }} activate
+{% endif %}
+{% for vrf in vrfs %}{% set v = vrf.name.value %}
+   !
+   vrf {{ v }}
+      rd {{ router_id }}:{{ vrf.l3_vni.value }}
+      route-target import evpn {{ rt_asn }}:{{ vrf.l3_vni.value }}
+      route-target export evpn {{ rt_asn }}:{{ vrf.l3_vni.value }}
+      router-id {{ router_id }}
+{% set vatts = attachments | selectattr("vrf.node.name.value", "equalto", v) | list %}
+{% for a in vatts %}{% set sd = a.devices.edges[0].node %}{% set o = a.prefix.node.prefix.value.split("/")[0].split(".") %}
+      neighbor {{ o[:3] | join(".") }}.{{ o[3] | int + standin_host }} remote-as {{ sd.asn.node.asn.value }}
+      neighbor {{ o[:3] | join(".") }}.{{ o[3] | int + standin_host }} description {{ a.name.value }}
+      neighbor {{ o[:3] | join(".") }}.{{ o[3] | int + standin_host }} bfd
+{% endfor %}
+{% if v == transit_vrf and cloud_atts %}
+{# maximum-paths inside a BGP VRF = number of cloud routers #}
+      maximum-paths {{ cloud_atts | length }}
+{% endif %}
+{% if v != transit_vrf %}
+{% for p in summ_ns.pairs | selectattr("0", "equalto", v) | map(attribute="1") | list %}
+{# network / aggregate-address at the BGP VRF level (AVD form) #}
+{% if v in static_summary_vrfs %}
+      network {{ p }}
+{% else %}
+      aggregate-address {{ p }}
+{% endif %}
+{% endfor %}
+{% endif %}
+      redistribute connected
+{% if vatts %}
+      !
+{# check: IPv4 activation of a VRF neighbor with no bgp default ipv4-unicast; route-map placement #}
+      address-family ipv4
+{% for a in vatts %}{% set sd = a.devices.edges[0].node %}{% set o = a.prefix.node.prefix.value.split("/")[0].split(".") %}{% set ip = o[:3] | join(".") ~ "." ~ (o[3] | int + standin_host) %}{% set tag = rm_tag.get(sd.role.value, "FW") %}
+         neighbor {{ ip }} activate
+         neighbor {{ ip }} route-map RM-{{ v }}-FROM-{{ tag }} in
+         neighbor {{ ip }} route-map RM-{{ v }}-TO-{{ tag }} out
+{% endfor %}
+{% endif %}
+{% endfor %}
+!
+{# eAPI over HTTPS in VRF MGMT; login: user dc3-automation, local AAA #}
+management api http-commands
+   protocol https
+   no shutdown
+   !
+   vrf {{ mgmt_vrf }}
+      no shutdown
+!
+end

@@ -1,0 +1,126 @@
+{# DC3 Internet FW stand-in (FRR 10.6.0), one POSIX shell script run by containerlab `exec`.
+   One kernel VRF (FortiOS VRF 1), LACP aggregates toward
+   the border leaves, EDGE and DMZ pairs, VLAN sub-interfaces (TRANSIT, edge VLAN, DMZ VLANs; addresses from Infrahub),
+   blackhole + network for the site's public /24, eBGP to the border leaves (TRANSIT) and both ISP routers (edge VLAN),
+   BFD 999 x 3, lab-only source NAT of the site's tenant summaries to the public /25. #}
+{# Constants #}
+{% set table_vrf = 1 -%}
+{% set transit_vrf = "TRANSIT" -%}
+{% set bfd_tx = 999 -%}{% set bfd_rx = 999 -%}{% set bfd_mult = 3 -%}
+{% set seq_step = 10 -%}
+{% set table_base = 1000 -%}{% set bfd_profile = "FW-BFD" -%}{% set bond_mode = "802.3ad" -%}   {#- kernel table base, BFD profile name, LACP bond mode -#}
+{% set outside_prefix = "OUTSIDE-" -%}{% set dmz_prefix = "DMZ-" -%}   {#- sub-interface name prefixes: outside, DMZ -#}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site = device.location.node -%}
+{% set site_name = site.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set aggs = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | sort(attribute="name.value") -%}
+{% set subifs = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | selectattr("role.value", "equalto", "peering") | list | sort(attribute="name.value") -%}
+{% set transit_att = data.FabricAttachment.edges | map(attribute="node") | list | selectattr("vrf.node.name.value", "equalto", transit_vrf) | list | first -%}
+{% set inside_if = transit_vrf ~ "-" ~ transit_att.vlan_id.value -%}
+{% set out_ns = namespace(intf=none) -%}
+{% for s in subifs %}{% if s.name.value.startswith(outside_prefix) %}{% set out_ns.intf = s %}{% endif %}{% endfor -%}
+{% set outside = out_ns.intf -%}
+{% set isps = data.IspRouters.edges | map(attribute="node") | list | selectattr("location.node.name.value", "equalto", site_name) | list | sort(attribute="name.value") -%}
+{% set pub_ns = namespace(p24=none, p25=none) -%}
+{% for p in site.owned_prefixes.edges | map(attribute="node.prefix.value") | list %}{% if not p.startswith("10.") and not p.startswith("169.254.") %}{% if p.split("/")[1] == "24" %}{% set pub_ns.p24 = p %}{% elif p.split("/")[1] == "25" %}{% set pub_ns.p25 = p %}{% endif %}{% endif %}{% endfor -%}
+{% set summ_ns = namespace(pairs=[]) -%}
+{% for v in site.vrfs.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for s in v.summaries.edges | map(attribute="node") | list | sort(attribute="prefix.value") %}{% if s.site.node is not none and s.site.node.name.value == site_name %}{% set summ_ns.pairs = summ_ns.pairs + [(v.name.value, s.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% set site_summaries = summ_ns.pairs | rejectattr("0", "equalto", transit_vrf) | map(attribute="1") | unique | list -%}
+{% macro host(p, n) %}{% set o = p.split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+{% set router_id = (subifs | selectattr("name.value", "equalto", inside_if) | list | first).ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set nat_first = host(pub_ns.p25, 1) -%}
+{% set nat_last = host(pub_ns.p25, (2 ** (32 - (pub_ns.p25.split("/")[1] | int))) - 2) -%}
+#!/bin/sh
+# {{ name }}: DC3 Internet FW stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Lab-only: source NAT of {{ site_summaries | join(", ") }} to {{ pub_ns.p25 }} on {{ outside.name.value }}.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+sysctl -qw net.ipv4.tcp_l3mdev_accept=1
+# --- VRF (FortiOS VRF {{ table_vrf }} -> vrf{{ table_vrf }}, table {{ table_base + table_vrf }})
+ip link add vrf{{ table_vrf }} type vrf table {{ table_base + table_vrf }} 2>/dev/null || true
+ip link set vrf{{ table_vrf }} up
+# --- aggregates (LACP; members that exist in the lab)
+{% for a in aggs %}
+ip link add {{ a.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in a.members.edges | map(attribute="node.name.value") | list | sort %}
+if [ -e /sys/class/net/{{ m }} ]; then ip link set {{ m }} down; ip link set {{ m }} mtu {{ a.mtu.value }}; ip link set {{ m }} master {{ a.name.value }}; ip link set {{ m }} up; fi
+{% endfor %}
+ip link set {{ a.name.value }} mtu {{ a.mtu.value }} up
+{% endfor %}
+# --- VLAN sub-interfaces: inside (TRANSIT), outside (edge VLAN), DMZ (Infrahub data)
+{% for s in subifs %}
+ip link add link {{ s.parent_interface.node.name.value }} name {{ s.name.value }} type vlan id {{ s.name.value.split("-")[-1] }} 2>/dev/null || true
+ip link set {{ s.name.value }} master vrf{{ table_vrf }}
+ip addr replace {{ s.ip_addresses.edges[0].node.address.value }} dev {{ s.name.value }}
+ip link set {{ s.name.value }} mtu {{ s.mtu.value }} up
+{% endfor %}
+# --- lab-only source NAT toward the ISP routers
+command -v iptables >/dev/null || apk add --no-cache iptables >/dev/null
+{% for p in site_summaries %}
+iptables -t nat -C POSTROUTING -s {{ p }} -o {{ outside.name.value }} -j SNAT --to-source {{ nat_first }}-{{ nat_last }} 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ p }} -o {{ outside.name.value }} -j SNAT --to-source {{ nat_first }}-{{ nat_last }}
+{% endfor %}
+# --- routing daemons
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+vrf vrf{{ table_vrf }}
+ ip route {{ pub_ns.p24 }} blackhole
+exit-vrf
+!
+ip prefix-list PL-DEFAULT seq {{ seq_step }} permit 0.0.0.0/0
+{% for p in site_summaries %}
+ip prefix-list PL-{{ transit_vrf }}-SUMMARY seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+ip prefix-list PL-PUBLIC seq {{ seq_step }} permit {{ pub_ns.p24 }}
+!
+route-map RM-{{ transit_vrf }}-FROM-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-{{ transit_vrf }}-SUMMARY
+route-map RM-{{ transit_vrf }}-TO-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+route-map RM-FROM-ISP permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+route-map RM-TO-ISP permit {{ seq_step }}
+ match ip address prefix-list PL-PUBLIC
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_tx }}
+  receive-interval {{ bfd_rx }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+{% set leaves = transit_att.switch_pair.node.members.edges | map(attribute="node") | list | sort(attribute="name.value") -%}
+{% set nb_ns = namespace(items=[]) -%}
+{% for leaf in leaves %}{% set nb_ns.items = nb_ns.items + [(host(transit_att.prefix.node.prefix.value, loop.index), leaf.asn.node.asn.value, leaf.name.value, inside_if, transit_vrf ~ "-FROM-LEAF", transit_vrf ~ "-TO-LEAF")] %}{% endfor -%}
+{% for r in isps %}{% set nb_ns.items = nb_ns.items + [((r.interfaces.edges | map(attribute="node") | selectattr("__typename", "equalto", "InterfaceVirtual") | list | first).ip_addresses.edges[0].node.address.value | ipaddress_interface("ip"), r.asn.node.asn.value, r.name.value, outside.name.value, "FROM-ISP", "TO-ISP")] %}{% endfor -%}
+router bgp {{ asn }} vrf vrf{{ table_vrf }}
+ bgp router-id {{ router_id }}
+ bgp graceful-restart
+{% for peer, ras, desc, src, rin, rout in nb_ns.items %}
+ neighbor {{ peer }} remote-as {{ ras }}
+ neighbor {{ peer }} description {{ desc }}
+ neighbor {{ peer }} update-source {{ src }}
+ neighbor {{ peer }} bfd profile {{ bfd_profile }}
+{% endfor %}
+ address-family ipv4 unicast
+  network {{ pub_ns.p24 }}
+{% for peer, ras, desc, src, rin, rout in nb_ns.items %}
+  neighbor {{ peer }} route-map RM-{{ rin }} in
+  neighbor {{ peer }} route-map RM-{{ rout }} out
+{% endfor %}
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

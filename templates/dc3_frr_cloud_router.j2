@@ -1,0 +1,163 @@
+{# DC3 cloud router stand-in (FRR 10.6.0), one POSIX shell script run by containerlab `exec`.
+   Routing of the cloud router: bundle toward the border-leaf MLAG
+   port-channel with a tagged TRANSIT sub-interface (.3 of the attachment /29), iBGP over the cross-link (next-hop-self),
+   the cloud-exchange port with the AWS VIF and ExpressRoute sub-interfaces; eBGP to AWS (BFD 300 x 3) and Microsoft, to
+   both border leaves (BFD 999 x 3). Out to the clouds: 0/0, the DC tenant /16 (aggregate), the site's PARTNER summaries;
+   in: the cloud's block le 24, guardrail first. DC3 is not a backup site (no prepend). No BGP passwords / MD5.
+   Guardrail = the site's infrastructure /16 + the shared 10.0.0.0/16. #}
+{% set cloud_bfd_interval = 300 -%}{% set cloud_bfd_mult = 3 -%}   {#- BFD toward the cloud providers -#}
+{% set bfd_interval = 999 -%}{% set bfd_mult = 3 -%}
+{% set aws_provider = "AWS" -%}{% set azure_provider = "Microsoft" -%}   {#- provider names -#}
+{% set aws_peer_host = 1 -%}{% set ms_peer_host = 2 -%}           {#- provider address in the /30 -#}
+{% set dc_summary = {"DC3": "10.24.0.0/16"} -%}                   {#- DC tenant /16 -#}
+{% set partner_vrf = "PARTNER" -%}
+{% set aws_block = "172.16.0.0/13" -%}{% set azure_block = "172.30.0.0/15" -%}
+{% set cloud_le = 24 -%}{% set fabric_le = 24 -%}                 {#- le lengths: cloud blocks, fabric routes -#}
+{% set guardrail = ["10.27.0.0/16", "10.0.0.0/16"] -%}            {#- site infrastructure /16 + 10.0.0.0/16 -#}
+{% set max_prefix = 100 -%}{% set max_prefix_pct = 90 -%}         {#- maximum-prefix and warning threshold -#}
+{% set seq_step = 10 -%}
+{% set cloud_bfd_profile = "CLOUD-BFD" -%}{% set fabric_bfd_profile = "FABRIC-BFD" -%}{% set bond_mode = "802.3ad" -%}   {#- BFD profile names ("<X>-BFD"), bond mode -#}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site = device.location.node -%}
+{% set site_name = site.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set physical = interfaces | selectattr("__typename", "equalto", "InterfacePhysical") | list -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set lo0 = virtual | selectattr("name.value", "equalto", "loopback0") | list | first -%}
+{% set bundle = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | first -%}
+{% set members = physical | selectattr("role.value", "equalto", "peering") | list | sort(attribute="name.value") -%}
+{% set fabric_sub = virtual | selectattr("role.value", "equalto", "peering") | list | first -%}
+{% set xlink = physical | selectattr("role.value", "equalto", "core") | list | first -%}
+{% set xc = physical | selectattr("role.value", "equalto", "cloud_handoff") | list | first -%}
+{% set handoffs = virtual | selectattr("role.value", "equalto", "cloud_handoff") | list | sort(attribute="name.value") -%}
+{% set hs = namespace(aws=none, azure=none, aws_asn=none, azure_asn=none) -%}
+{% for h in handoffs %}{% if h.description.value.startswith(aws_provider ~ " ") %}{% set hs.aws = h %}{% elif h.description.value.startswith(azure_provider ~ " ") %}{% set hs.azure = h %}{% endif %}{% endfor -%}
+{% for a in data.ProviderAsns.edges | map(attribute="node") | list %}{% if a.provider.node is not none %}{% if a.provider.node.name.value == aws_provider %}{% set hs.aws_asn = a.asn.value %}{% elif a.provider.node.name.value == azure_provider %}{% set hs.azure_asn = a.asn.value %}{% endif %}{% endif %}{% endfor -%}
+{% set att = data.FabricAttachment.edges[0].node -%}
+{% set leaves = att.switch_pair.node.members.edges | map(attribute="node") | list | sort(attribute="name.value") -%}
+{% set pns = namespace(items=[]) -%}
+{% for v in site.vrfs.edges | map(attribute="node") | list %}{% if v.name.value == partner_vrf %}{% for s in v.summaries.edges | map(attribute="node") | list | sort(attribute="prefix.value") %}{% if s.site.node is not none and s.site.node.name.value == site_name %}{% set pns.items = pns.items + [s.prefix.value] %}{% endif %}{% endfor %}{% endif %}{% endfor -%}
+{% macro host(addr, h) %}{% set o = (addr | ipaddress_interface("network") | string).split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + h }}{% endmacro -%}
+{% set lo0_ip = lo0.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set xlink_ip = xlink.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") | string -%}
+{% set xo = xlink_ip.split(".") -%}
+{% set ibgp_peer = xo[:3] | join(".") ~ "." ~ ((xo[3] | int) + (1 if (xo[3] | int) % 2 == 0 else -1)) -%}
+{% set aws_peer = host(hs.aws.ip_addresses.edges[0].node.address.value, aws_peer_host) -%}
+{% set azure_peer = host(hs.azure.ip_addresses.edges[0].node.address.value, ms_peer_host) -%}
+{% set to_cloud = ["0.0.0.0/0", dc_summary[site_name]] + pns.items -%}
+#!/bin/sh
+# {{ name }}: DC3 cloud router stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Not modelled: the management VRF (container eth0; its default route is removed so 0.0.0.0/0 comes only from BGP).
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+ip route del default dev eth0 2>/dev/null || true
+# --- loopback0
+ip addr replace {{ lo0_ip }}/32 dev lo
+# --- {{ bundle.name.value }} toward the border leaves (LACP) and the TRANSIT sub-interface {{ fabric_sub.name.value }}
+ip link add {{ bundle.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in members %}
+if [ -e /sys/class/net/{{ m.name.value }} ]; then ip link set {{ m.name.value }} down; ip link set {{ m.name.value }} mtu {{ m.mtu.value }}; ip link set {{ m.name.value }} master {{ bundle.name.value }}; ip link set {{ m.name.value }} up; fi
+{% endfor %}
+ip link set {{ bundle.name.value }} mtu {{ bundle.mtu.value }} up
+ip link add link {{ bundle.name.value }} name {{ fabric_sub.name.value }} type vlan id {{ fabric_sub.name.value.split(".")[1] }} 2>/dev/null || true
+ip addr replace {{ fabric_sub.ip_addresses.edges[0].node.address.value }} dev {{ fabric_sub.name.value }}
+ip link set {{ fabric_sub.name.value }} mtu {{ fabric_sub.mtu.value }} up
+# --- cross-link {{ xlink.name.value }}, cloud-exchange port {{ xc.name.value }} and its handoffs
+if [ -e /sys/class/net/{{ xlink.name.value }} ]; then ip link set {{ xlink.name.value }} mtu {{ xlink.mtu.value }}; ip addr replace {{ xlink.ip_addresses.edges[0].node.address.value }} dev {{ xlink.name.value }}; ip link set {{ xlink.name.value }} up; fi
+ip link set {{ xc.name.value }} mtu {{ xc.mtu.value }} up
+{% for h in handoffs %}
+ip link add link {{ xc.name.value }} name {{ h.name.value }} type vlan id {{ h.name.value.split(".")[1] }} 2>/dev/null || true
+ip addr replace {{ h.ip_addresses.edges[0].node.address.value }} dev {{ h.name.value }}
+ip link set {{ h.name.value }} mtu {{ h.mtu.value }} up
+{% endfor %}
+# --- routing daemons
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+{% for p in guardrail %}
+ip prefix-list PL-GUARDRAIL seq {{ loop.index * seq_step }} permit {{ p }} le 32
+{% endfor %}
+ip prefix-list PL-AWS seq {{ seq_step }} permit {{ aws_block }} le {{ cloud_le }}
+ip prefix-list PL-AZURE seq {{ seq_step }} permit {{ azure_block }} le {{ cloud_le }}
+{% for p in to_cloud %}
+ip prefix-list PL-TO-CLOUD seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+ip prefix-list PL-FROM-FABRIC seq {{ seq_step }} permit 0.0.0.0/0
+ip prefix-list PL-FROM-FABRIC seq {{ 2 * seq_step }} permit {{ dc_summary[site_name] }} le {{ fabric_le }}
+!
+route-map RM-AWS-IN deny {{ seq_step }}
+ match ip address prefix-list PL-GUARDRAIL
+route-map RM-AWS-IN permit {{ 2 * seq_step }}
+ match ip address prefix-list PL-AWS
+route-map RM-AZURE-IN deny {{ seq_step }}
+ match ip address prefix-list PL-GUARDRAIL
+route-map RM-AZURE-IN permit {{ 2 * seq_step }}
+ match ip address prefix-list PL-AZURE
+route-map RM-CLOUD-OUT permit {{ seq_step }}
+ match ip address prefix-list PL-TO-CLOUD
+route-map RM-FABRIC-IN permit {{ seq_step }}
+ match ip address prefix-list PL-FROM-FABRIC
+route-map RM-FABRIC-OUT permit {{ seq_step }}
+ match ip address prefix-list PL-AWS
+route-map RM-FABRIC-OUT permit {{ 2 * seq_step }}
+ match ip address prefix-list PL-AZURE
+!
+bfd
+ profile {{ cloud_bfd_profile }}
+  transmit-interval {{ cloud_bfd_interval }}
+  receive-interval {{ cloud_bfd_interval }}
+  detect-multiplier {{ cloud_bfd_mult }}
+  no echo-mode
+ exit
+ profile {{ fabric_bfd_profile }}
+  transmit-interval {{ bfd_interval }}
+  receive-interval {{ bfd_interval }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+router bgp {{ asn }}
+ bgp router-id {{ lo0_ip }}
+ neighbor {{ aws_peer }} remote-as {{ hs.aws_asn }}
+ neighbor {{ aws_peer }} description {{ hs.aws.description.value }}
+ neighbor {{ aws_peer }} bfd profile {{ cloud_bfd_profile }}
+ neighbor {{ azure_peer }} remote-as {{ hs.azure_asn }}
+ neighbor {{ azure_peer }} description {{ hs.azure.description.value }}
+ neighbor {{ azure_peer }} bfd profile {{ cloud_bfd_profile }}
+ neighbor {{ ibgp_peer }} remote-as {{ asn }}
+ neighbor {{ ibgp_peer }} description {{ xlink.description.value.split(" ")[0] }}
+ neighbor {{ ibgp_peer }} bfd profile {{ fabric_bfd_profile }}
+{% for leaf in leaves %}
+{% set peer = host(att.prefix.node.prefix.value, loop.index) %}
+ neighbor {{ peer }} remote-as {{ leaf.asn.node.asn.value }}
+ neighbor {{ peer }} description {{ leaf.name.value }} ({{ att.name.value }})
+ neighbor {{ peer }} bfd profile {{ fabric_bfd_profile }}
+{% endfor %}
+ address-family ipv4 unicast
+  aggregate-address {{ dc_summary[site_name] }}
+  neighbor {{ aws_peer }} route-map RM-AWS-IN in
+  neighbor {{ aws_peer }} maximum-prefix {{ max_prefix }} {{ max_prefix_pct }} warning-only
+  neighbor {{ aws_peer }} route-map RM-CLOUD-OUT out
+  neighbor {{ azure_peer }} route-map RM-AZURE-IN in
+  neighbor {{ azure_peer }} maximum-prefix {{ max_prefix }} {{ max_prefix_pct }} warning-only
+  neighbor {{ azure_peer }} route-map RM-CLOUD-OUT out
+  neighbor {{ ibgp_peer }} next-hop-self
+{% for leaf in leaves %}
+{% set peer = host(att.prefix.node.prefix.value, loop.index) %}
+  neighbor {{ peer }} route-map RM-FABRIC-IN in
+  neighbor {{ peer }} route-map RM-FABRIC-OUT out
+{% endfor %}
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

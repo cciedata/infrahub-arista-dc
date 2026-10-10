@@ -1,0 +1,61 @@
+# DC3 L2-only MLAG pairs (EDGE1-EDGE2, DMZ1-DMZ2), Arista EOS; no BGP.
+# Management1 + MLAG plumbing, the pair's L2-only VLANs (FabricVpcDomain.l2_vlans)
+# and the port-channels toward the stand-ins (role peering).
+query Dc3L2PairConfig($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        switch_pair {
+          node {
+            __typename
+            name { value }
+            ... on FabricVpcDomain {
+              domain_id { value }
+              l2_vlans { edges { node { name { value } vlan_id { value } } } }
+            }
+            members {
+              edges {
+                node {
+                  name { value }
+                  interfaces(role__value: "vpc_keepalive") {
+                    edges {
+                      node {
+                        name { value }
+                        ... on InterfaceLayer3 {
+                          ip_addresses { edges { node { address { value } } } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 {
+                ip_addresses { edges { node { address { value } } } }
+              }
+              ... on InterfacePhysical {
+                port_channel { node { name { value } } }
+              }
+              ... on InterfacePortChannel {
+                members { edges { node { name { value } } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

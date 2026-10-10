@@ -1,0 +1,67 @@
+---
+# DC3 autonomous systems (order by role: BL pair, SL pair, then server leaves).
+# Spines share 65300 (= DC3 fabric_asn); an MLAG pair shares one ASN; ESI members and single leaves one each;
+# edge and DMZ have no ASN. Stand-ins outside the fabric by the offset rule.
+# Shared ASNs are not in this file: 65050 (ISP routers), 64496 / 64497 (carriers),
+# 65400 (SD-WAN overlay), 65500 (AWS), 12076 (Microsoft): in dc3-01-bootstrap.yml.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricAutonomousSystem
+  data:
+    - asn: 65300
+      description: DC3 spines (fabric ASN)
+      fabric_site: DC3
+    - asn: 65371
+      description: DC3 BL1-BL2 (MLAG pair)
+    - asn: 65372
+      description: DC3 SL1-SL2 (MLAG pair)
+    - asn: 65373
+      description: DC3 L1-L2 (MLAG pair)
+    - asn: 65374
+      description: DC3-L3 (ESI pair member)
+    - asn: 65375
+      description: DC3-L4 (ESI pair member)
+    - asn: 65376
+      description: DC3-L5 (ESI pair member)
+    - asn: 65377
+      description: DC3-L6 (ESI pair member)
+    - asn: 65378
+      description: DC3-L7 (ESI pair member)
+    - asn: 65379
+      description: DC3-L8 (ESI pair member)
+    - asn: 65380
+      description: DC3-L9 (ESI pair member)
+    - asn: 65381
+      description: DC3-L10 (ESI pair member)
+    - asn: 65382
+      description: DC3-L11 (single-homed)
+    - asn: 65383
+      description: DC3-L12 (single-homed)
+    - asn: 65384
+      description: DC3-L13 (single-homed)
+    - asn: 65385
+      description: DC3-L14 (single-homed)
+    - asn: 65386
+      description: DC3-L15 (single-homed)
+    - asn: 65387
+      description: DC3-L16 (single-homed)
+    - asn: 65388
+      description: DC3-L17 (single-homed)
+    - asn: 65389
+      description: DC3-L18 (single-homed)
+    - asn: 65390
+      description: DC3-L19 (single-homed)
+    - asn: 65391
+      description: DC3-L20 (single-homed)
+    # Stand-ins outside the fabric: site block + role offset
+    - asn: 65310
+      description: DC3 Internal FW stand-in
+    - asn: 65320
+      description: DC3 SD-WAN FW stand-in, fabric side (local-as)
+    - asn: 65330
+      description: DC3 VPN-partner FW stand-in
+    - asn: 65340
+      description: DC3 Internet FW stand-in
+    - asn: 65370
+      description: DC3 cloud router stand-ins

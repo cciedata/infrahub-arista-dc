@@ -1,0 +1,130 @@
+{# DC3 ISP router stand-in (FRR 10.6.0), one POSIX shell script run by containerlab `exec`.
+   eBGP to the carrier and to the Internet FW,
+   iBGP over the cross-link (next-hop-self), BFD 999 x 3, own public /24 (blackhole + network) to the carrier only when
+   locally originated, the /25 and /27 statics to the Internet FW, the WAN FWs' /28 statics, the conditional default to
+   the Internet FW. DC3 data: port names are already the Linux names (Gi0-0-0-k, BE21), no BGP passwords
+   (applied to every DC3 session). #}
+{% set bfd_interval = 999 -%}{% set bfd_mult = 3 -%}
+{% set max_prefix = 1200000 -%}{% set max_prefix_pct = 90 -%}   {#- maximum-prefix from the carrier and warning threshold -#}
+{% set inetfw_host = 10 -%}{% set wan_fw_host = {"sdwan_fw": 11, "vpn_fw": 12} -%}{% set carrier_host = 1 -%}   {#- host numbers on the edge VLAN, carrier .1 -#}
+{% set seq_step = 10 -%}
+{% set bfd_profile = "ISP-BFD" -%}{% set bond_mode = "802.3ad" -%}   {#- BFD profile name, LACP bond mode -#}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site = device.location.node -%}
+{% set site_name = site.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set physical = interfaces | selectattr("__typename", "equalto", "InterfacePhysical") | list -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set lo0 = virtual | selectattr("name.value", "equalto", "loopback0") | list | first -%}
+{% set bundle = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | first -%}
+{% set members = physical | selectattr("role.value", "equalto", "peering") | list | sort(attribute="name.value") -%}
+{% set subif = virtual | selectattr("role.value", "equalto", "peering") | list | first -%}
+{% set xlink = physical | selectattr("role.value", "equalto", "core") | list | first -%}
+{% set carrier = physical | selectattr("role.value", "equalto", "upstream") | list | first -%}
+{% set pns = namespace(asn=none, name=none) -%}
+{% for a in data.ProviderAsns.edges | map(attribute="node") | list %}{% if a.provider.node is not none and carrier.description.value.startswith(a.provider.node.name.value ~ " ") %}{% set pns.asn = a.asn.value %}{% set pns.name = a.provider.node.name.value %}{% endif %}{% endfor -%}
+{% set inetfw = data.InternetFws.edges | map(attribute="node") | list | selectattr("location.node.name.value", "equalto", site_name) | list | first -%}
+{% set pfx = namespace(p24=none, p25=none, p27=none) -%}
+{% for p in site.owned_prefixes.edges | map(attribute="node.prefix.value") | list %}{% if not p.startswith("10.") and not p.startswith("169.254.") and not p.startswith("192.0.2.") %}{% set l = p.split("/")[1] %}{% if l == "24" %}{% set pfx.p24 = p %}{% elif l == "25" %}{% set pfx.p25 = p %}{% elif l == "27" %}{% set pfx.p27 = p %}{% endif %}{% endif %}{% endfor -%}
+{% macro host(addr, h) %}{% set o = (addr | ipaddress_interface("network") | string).split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + h }}{% endmacro -%}
+{% set sub_addr = subif.ip_addresses.edges[0].node.address.value -%}
+{% set vlan = subif.name.value.split(".")[1] -%}
+{% set xlink_ip = xlink.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") | string -%}
+{% set xo = xlink_ip.split(".") -%}
+{% set ibgp_peer = xo[:3] | join(".") ~ "." ~ ((xo[3] | int) + (1 if (xo[3] | int) % 2 == 0 else -1)) -%}
+{% set carrier_peer = host(carrier.ip_addresses.edges[0].node.address.value, carrier_host) -%}
+{% set inetfw_ip = host(sub_addr, inetfw_host) -%}
+{% set wan_ns = namespace(routes=[]) -%}
+{% for f in (data.SdwanFws.edges + data.VpnFws.edges) | map(attribute="node") | list | selectattr("location.node.name.value", "equalto", site_name) | list | sort(attribute="name.value") %}{% for i in f.interfaces.edges | map(attribute="node") | list %}{% for a in i.ip_addresses.edges | map(attribute="node.address.value") | list %}{% set wan_ns.routes = wan_ns.routes + [(a | ipaddress_interface("network") | string, host(sub_addr, wan_fw_host[f.role.value]))] %}{% endfor %}{% endfor %}{% endfor -%}
+{% set router_id = lo0.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+#!/bin/sh
+# {{ name }}: DC3 ISP router stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Not modelled: the management VRF (container eth0; its default route is removed so 0.0.0.0/0 comes
+# only from BGP) and VRRP (the edge VLAN VIP is not in the lab).
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+ip route del default dev eth0 2>/dev/null || true
+# --- loopback0
+ip addr replace {{ router_id }}/32 dev lo
+# --- {{ bundle.name.value }} (LACP; members that exist in the lab) and its sub-interface {{ subif.name.value }}
+ip link add {{ bundle.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in members %}
+if [ -e /sys/class/net/{{ m.name.value }} ]; then ip link set {{ m.name.value }} down; ip link set {{ m.name.value }} mtu {{ m.mtu.value }}; ip link set {{ m.name.value }} master {{ bundle.name.value }}; ip link set {{ m.name.value }} up; fi
+{% endfor %}
+ip link set {{ bundle.name.value }} mtu {{ bundle.mtu.value }} up
+ip link add link {{ bundle.name.value }} name {{ subif.name.value }} type vlan id {{ vlan }} 2>/dev/null || true
+ip addr replace {{ sub_addr }} dev {{ subif.name.value }}
+ip link set {{ subif.name.value }} mtu {{ subif.mtu.value }} up
+# --- cross-link {{ xlink.name.value }} and carrier link {{ carrier.name.value }}
+{% for i in [xlink, carrier] %}
+if [ -e /sys/class/net/{{ i.name.value }} ]; then ip link set {{ i.name.value }} mtu {{ i.mtu.value }}; ip addr replace {{ i.ip_addresses.edges[0].node.address.value }} dev {{ i.name.value }}; ip link set {{ i.name.value }} up; fi
+{% endfor %}
+# --- routing daemons
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+ip route {{ pfx.p24 }} blackhole
+ip route {{ pfx.p25 }} {{ inetfw_ip }}
+ip route {{ pfx.p27 }} {{ inetfw_ip }}
+{% for net, nh in wan_ns.routes %}
+ip route {{ net }} {{ nh }}
+{% endfor %}
+!
+ip prefix-list PL-OWN-PUBLIC seq {{ seq_step }} permit {{ pfx.p24 }}
+ip prefix-list PL-DEFAULT seq {{ seq_step }} permit 0.0.0.0/0
+!
+bgp as-path access-list AS-LOCAL seq {{ seq_step }} permit ^$
+!
+route-map RM-CARRIER-IN permit {{ seq_step }}
+route-map RM-CARRIER-OUT permit {{ seq_step }}
+ match ip address prefix-list PL-OWN-PUBLIC
+ match as-path AS-LOCAL
+route-map RM-INETFW-IN permit {{ seq_step }}
+ match ip address prefix-list PL-OWN-PUBLIC
+route-map RM-INETFW-OUT deny {{ seq_step }}
+route-map RM-COND-DEFAULT permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_interval }}
+  receive-interval {{ bfd_interval }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+router bgp {{ asn }}
+ bgp router-id {{ router_id }}
+ bgp graceful-restart
+ neighbor {{ carrier_peer }} remote-as {{ pns.asn }}
+ neighbor {{ carrier_peer }} description {{ pns.name }}
+ neighbor {{ carrier_peer }} bfd profile {{ bfd_profile }}
+ neighbor {{ ibgp_peer }} remote-as {{ asn }}
+ neighbor {{ ibgp_peer }} description {{ xlink.description.value.split(" ")[0] }}
+ neighbor {{ ibgp_peer }} bfd profile {{ bfd_profile }}
+ neighbor {{ inetfw_ip }} remote-as {{ inetfw.asn.node.asn.value }}
+ neighbor {{ inetfw_ip }} description {{ inetfw.name.value }}
+ neighbor {{ inetfw_ip }} bfd profile {{ bfd_profile }}
+ address-family ipv4 unicast
+  network {{ pfx.p24 }}
+  neighbor {{ carrier_peer }} route-map RM-CARRIER-IN in
+  neighbor {{ carrier_peer }} maximum-prefix {{ max_prefix }} {{ max_prefix_pct }} warning-only
+  neighbor {{ carrier_peer }} route-map RM-CARRIER-OUT out
+  neighbor {{ ibgp_peer }} next-hop-self
+  neighbor {{ inetfw_ip }} route-map RM-INETFW-IN in
+  neighbor {{ inetfw_ip }} default-originate route-map RM-COND-DEFAULT
+  neighbor {{ inetfw_ip }} route-map RM-INETFW-OUT out
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

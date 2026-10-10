@@ -1,0 +1,37 @@
+---
+# DC3 schema addition: zero-touch provisioning state on DcimDevice, written by the ZTP server (ztp/) through
+# the dc3-ztp-callback account. Loaded after schemas/ by scripts/bootstrap.sh.
+version: "1.0"
+extensions:
+  nodes:
+    - kind: DcimDevice
+      attributes:
+        - name: ztp_state
+          kind: Dropdown
+          label: ZTP State
+          optional: true
+          description: Zero-touch provisioning state. Written by the ZTP server through the dc3-ztp-callback account.
+          choices:
+            - name: pending
+              label: Pending
+              description: Expected to provision itself (serial recorded).
+              color: "#4d90fe"
+            - name: served
+              label: Served
+              description: The ZTP server sent this device its config.
+              color: "#f0ad4e"
+            - name: complete
+              label: Complete
+              description: Verified after the ZTP reboot (eAPI, hostname = device name).
+              color: "#00d25b"
+            - name: failed
+              label: Failed
+              description: The bootstrap script reported an error, or no verified login within 30 min.
+              color: "#e04040"
+          order_weight: 1210
+        - name: ztp_updated
+          kind: DateTime
+          label: ZTP Updated
+          optional: true
+          description: Time of the last ztp_state write (UTC).
+          order_weight: 1220

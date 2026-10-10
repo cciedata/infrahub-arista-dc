@@ -1,0 +1,45 @@
+---
+# Arista hardware for DC3 and the EOS platform (4.36.2F, set per device by generator dc3_site).
+# Facts in descriptions and heights: Arista datasheets.
+# Left empty on purpose (not decided / not verified): esi_min_release (7050SX3-48YC8C ESI support per platform),
+# orderable SKU suffixes (airflow / PSU, open); part_number carries the decided model name only.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: OrganizationManufacturer
+  data:
+    - name: Arista
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: DcimPlatform
+  data:
+    - name: Arista EOS
+      manufacturer: Arista
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: DcimDeviceType
+  data:
+    - name: DCS-7060DX5-64S
+      manufacturer: Arista
+      height: 2
+      part_number: DCS-7060DX5-64S
+      description: 64 x 400G QSFP-DD + 2 x SFP+, 2RU; spine
+    - name: DCS-7050SX3-48YC8C
+      manufacturer: Arista
+      height: 1
+      part_number: DCS-7050SX3-48YC8C
+      description: 48 x 1/10/25G SFP28 + 8 x 100G QSFP28, 1RU; server leaf and DMZ switch
+    - name: DCS-7280DR3-24
+      manufacturer: Arista
+      height: 1
+      part_number: DCS-7280DR3-24
+      description: 24 x 400G QSFP-DD, 1RU, no SFP+; border and service leaves
+    - name: DCS-7050DX4-32S
+      manufacturer: Arista
+      height: 1
+      part_number: DCS-7050DX4-32S
+      description: 32 x 400G QSFP-DD + 2 x SFP+, 1RU; edge switch

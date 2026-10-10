@@ -1,0 +1,58 @@
+{# DC3 SD-WAN branch stand-ins (FRR 10.6.0), rendered from the SD-WAN hub FW's data (artifact per hub):
+   one POSIX shell script for every branch with a hub in this site; each branch node runs the same file and picks its own
+   part by hostname (containerlab node name = hostname). Branch side: iBGP AS 65400 to the hub over
+   the overlay, branch LAN from FabricBranch.lan_prefix. Lab stand-in values: overlay address of
+   branch n = hub + n (the FortiOS mode-cfg pool starts at hub + 1), LAN gateway .1 on a dummy
+   interface `lan`, port `eth1` toward the hub bridge. #}
+{% set overlay_asn = 65400 -%}                   {#- SD-WAN overlay AS -#}
+{% set tunnel = "ADVPN-HUB" -%}
+{% set lan_gw_host = 1 -%}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set hub = device.name.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set tun = device.interfaces.edges | map(attribute="node") | selectattr("name.value", "equalto", tunnel) | list | first -%}
+{% set tun_addr = tun.ip_addresses.edges[0].node.address.value -%}
+{% set tun_ip = tun_addr | ipaddress_interface("ip") | string -%}
+{% set tun_len = tun_addr.split("/")[1] -%}
+{% set br_ns = namespace(items=[]) -%}
+{% for b in data.FabricBranch.edges | map(attribute="node") | list | sort(attribute="branch_id.value") %}{% if site_name in (b.hubs.edges | map(attribute="node.name.value") | list) %}{% set br_ns.items = br_ns.items + [b] %}{% endif %}{% endfor -%}
+{% macro shift(ip, n) %}{% set o = ip.split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+#!/bin/sh
+# SD-WAN branch stand-ins behind {{ hub }} ({{ site_name }}): {{ br_ns.items | map(attribute="name.value") | join(", ") }}. Rendered by Infrahub, do not edit.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+case "$(hostname)" in
+{% for b in br_ns.items %}
+{% set node = site_name ~ "-" ~ b.name.value %}
+{% set lan = b.lan_prefix.node.prefix.value %}
+{% set me = shift(tun_ip, b.branch_id.value) %}
+{{ node }})
+ip link set eth1 up
+ip addr replace {{ me }}/{{ tun_len }} dev eth1
+ip link add lan type dummy 2>/dev/null || true
+ip addr replace {{ shift(lan.split("/")[0], lan_gw_host) }}/{{ lan.split("/")[1] }} dev lan
+ip link set lan up
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ node }}
+service integrated-vtysh-config
+!
+router bgp {{ overlay_asn }}
+ bgp router-id {{ me }}
+ neighbor {{ tun_ip }} remote-as {{ overlay_asn }}
+ neighbor {{ tun_ip }} description {{ hub }} {{ tunnel }}
+ address-family ipv4 unicast
+  network {{ lan }}
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ node }} stand-in ready"
+;;
+{% endfor %}
+*)
+echo "$(hostname): not a branch of {{ hub }}" >&2
+exit 1
+;;
+esac

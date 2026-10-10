@@ -1,0 +1,121 @@
+# DC3 border and service leaves (MLAG pairs BL1-BL2, SL1-SL2), Arista EOS.
+# Same fields as dc3_leaf_config.gql, plus the site's VRF summaries and the pair's FabricAttachments
+# (VRF, VLAN, /29, attached stand-in with role and ASN).
+query Dc3BorderServiceLeafConfig($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        location {
+          node {
+            ... on LocationSite {
+              name { value }
+              vrfs {
+                edges {
+                  node {
+                    name { value }
+                    summaries { edges { node { prefix { value } site { node { name { value } } } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+        asn { node { asn { value } } }
+        switch_pair {
+          node {
+            __typename
+            name { value }
+            ... on FabricVpcDomain {
+              domain_id { value }
+              anycast_vtep { node { address { value } } }
+              attachments {
+                edges {
+                  node {
+                    name { value }
+                    vlan_id { value }
+                    prefix { node { prefix { value } } }
+                    vrf { node { name { value } l3_vni { value } } }
+                    devices { edges { node { name { value } role { value } asn { node { asn { value } } } } } }
+                  }
+                }
+              }
+            }
+            members {
+              edges {
+                node {
+                  name { value }
+                  interfaces(role__value: "vpc_keepalive") {
+                    edges {
+                      node {
+                        name { value }
+                        ... on InterfaceLayer3 {
+                          ip_addresses { edges { node { address { value } } } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 {
+                ip_addresses { edges { node { address { value } } } }
+              }
+              ... on InterfacePhysical {
+                port_channel { node { name { value } } }
+              }
+              ... on InterfacePortChannel {
+                members { edges { node { name { value } } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  FabricAutonomousSystem {
+    edges {
+      node {
+        asn { value }
+        devices {
+          edges {
+            node {
+              name { value }
+              role { value }
+              interfaces(name__value: "Loopback0") {
+                edges {
+                  node {
+                    name { value }
+                    ... on InterfaceLayer3 {
+                      ip_addresses { edges { node { address { value } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  CoreIPAddressPool {
+    edges {
+      node {
+        name { value }
+        resources { edges { node { ... on IpamPrefix { prefix { value } } } } }
+      }
+    }
+  }
+}

@@ -1,0 +1,36 @@
+---
+# DC3 lab test hosts: one access port per VRF that the server leaves carry (PROD, DEV, CITRIX: server_vrfs in
+# dc3_leaf_config.j2), on the first single-homed leaf, lowest VLAN of each VRF. Defined in this file, not by the
+# generator (role access is outside the roles the reconciler manages). Descriptions <peer device> <peer interface>.
+# Load AFTER the dc3_site write run (DC3 instance: main; an instance that also holds other sites: a branch, for example
+# dc3) (DC3-L11 must exist) and after dc3-07-segments.yml.
+# MTU 9214: the EOS L3 maximum; the template does not render it on a switched port.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: InterfacePhysical
+  data:
+    - device: DC3-L11
+      name: Ethernet1
+      description: DC3-HOST-PROD eth1
+      role: access
+      l2_mode: access
+      status: active
+      mtu: 9214
+      access_segment: DC3-PROD-1010
+    - device: DC3-L11
+      name: Ethernet2
+      description: DC3-HOST-DEV eth1
+      role: access
+      l2_mode: access
+      status: active
+      mtu: 9214
+      access_segment: DC3-DEV-1110
+    - device: DC3-L11
+      name: Ethernet3
+      description: DC3-HOST-CITRIX eth1
+      role: access
+      l2_mode: access
+      status: active
+      mtu: 9214
+      access_segment: CITRIX-DC3-1500

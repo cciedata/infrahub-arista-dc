@@ -1,0 +1,198 @@
+---
+# DC3 repository definition. In this repo's own Infrahub (docs/BUILD.md, branch main) infrahubctl reads it from the repo.
+# Option: add it to an Infrahub instance that also holds other sites as a read-only repository, used on a branch
+# (for example dc3). Every name starts with dc3_, so names stay unique next to other repositories.
+# Data layer (generator dc3_site); EOS queries, Jinja2 transforms and artifact definitions;
+# tenant VRFs / segments / attachments in the EOS templates; FRR stand-in scripts (artifacts frr-lab-init etc.).
+
+queries:
+  - name: dc3_site
+    file_path: queries/dc3_site.gql
+  # EOS startup-configs
+  - name: dc3_spine_config
+    file_path: queries/dc3_spine_config.gql
+  - name: dc3_leaf_config
+    file_path: queries/dc3_leaf_config.gql
+  - name: dc3_border_service_leaf_config
+    file_path: queries/dc3_border_service_leaf_config.gql
+  - name: dc3_l2_pair_config
+    file_path: queries/dc3_l2_pair_config.gql
+  # FRR stand-ins (one query per family)
+  - name: dc3_frr_fw
+    file_path: queries/dc3_frr_fw.gql
+  - name: dc3_frr_router
+    file_path: queries/dc3_frr_router.gql
+  - name: dc3_frr_cloud_provider
+    file_path: queries/dc3_frr_cloud_provider.gql
+
+jinja2_transforms:
+  - name: dc3_spine_config
+    description: DC3 spine Arista EOS config (fabric core)
+    query: dc3_spine_config
+    template_path: templates/dc3_spine_config.j2
+  - name: dc3_leaf_config
+    description: DC3 server leaf Arista EOS config (fabric core)
+    query: dc3_leaf_config
+    template_path: templates/dc3_leaf_config.j2
+  - name: dc3_border_service_leaf_config
+    description: DC3 border and service leaf Arista EOS config (fabric core)
+    query: dc3_border_service_leaf_config
+    template_path: templates/dc3_border_service_leaf_config.j2
+  - name: dc3_l2_pair_config
+    description: DC3 edge and DMZ switch Arista EOS config (L2 only, MLAG)
+    query: dc3_l2_pair_config
+    template_path: templates/dc3_l2_pair_config.j2
+  # FRR stand-in init scripts (POSIX shell, run by containerlab exec)
+  - name: dc3_frr_internal_fw
+    description: DC3 Internal FW stand-in (FRR init script)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_internal_fw.j2
+  - name: dc3_frr_internet_fw
+    description: DC3 Internet FW stand-in (FRR init script)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_internet_fw.j2
+  - name: dc3_frr_sdwan_fw
+    description: DC3 SD-WAN hub FW stand-in (FRR init script)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_sdwan_fw.j2
+  - name: dc3_frr_branch
+    description: DC3 SD-WAN branch stand-ins behind one hub (FRR init script, by hostname)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_branch.j2
+  - name: dc3_frr_vpn_fw
+    description: DC3 VPN-partner FW stand-in (FRR init script)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_vpn_fw.j2
+  - name: dc3_frr_partner
+    description: DC3 partner stand-ins behind one VPN-partner FW (init script, by hostname)
+    query: dc3_frr_fw
+    template_path: templates/dc3_frr_partner.j2
+  - name: dc3_frr_isp_router
+    description: DC3 ISP router stand-in (FRR init script)
+    query: dc3_frr_router
+    template_path: templates/dc3_frr_isp_router.j2
+  - name: dc3_frr_carrier
+    description: DC3 carrier stand-in behind one ISP router (FRR init script)
+    query: dc3_frr_router
+    template_path: templates/dc3_frr_carrier.j2
+  - name: dc3_frr_cloud_router
+    description: DC3 cloud router stand-in (FRR init script)
+    query: dc3_frr_router
+    template_path: templates/dc3_frr_cloud_router.j2
+  - name: dc3_frr_cloud_provider
+    description: DC3 AWS and Azure stand-ins (FRR init script, by hostname)
+    query: dc3_frr_cloud_provider
+    template_path: templates/dc3_frr_cloud_provider.j2
+
+artifact_definitions:
+  - name: dc3_spine_startup_config
+    artifact_name: startup-config
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-spines
+    transformation: dc3_spine_config
+  - name: dc3_leaf_startup_config
+    artifact_name: startup-config
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-server-leaves
+    transformation: dc3_leaf_config
+  - name: dc3_border_service_leaf_startup_config
+    artifact_name: startup-config
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-border-service-leaves
+    transformation: dc3_border_service_leaf_config
+  - name: dc3_l2_pair_startup_config
+    artifact_name: startup-config
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-l2-pairs
+    transformation: dc3_l2_pair_config
+  # FRR stand-in init scripts (artifact names: frr-lab-init, carrier-lab-init and others)
+  - name: dc3_internal_fw_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-internal-fws
+    transformation: dc3_frr_internal_fw
+  - name: dc3_internet_fw_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-internet-fws
+    transformation: dc3_frr_internet_fw
+  - name: dc3_sdwan_fw_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-sdwan-fws
+    transformation: dc3_frr_sdwan_fw
+  - name: dc3_branch_lab_init
+    artifact_name: branch-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-sdwan-fws
+    transformation: dc3_frr_branch
+  - name: dc3_vpn_fw_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-vpn-fws
+    transformation: dc3_frr_vpn_fw
+  - name: dc3_partner_lab_init
+    artifact_name: partner-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-vpn-fws
+    transformation: dc3_frr_partner
+  - name: dc3_isp_router_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-isp-routers
+    transformation: dc3_frr_isp_router
+  - name: dc3_carrier_lab_init
+    artifact_name: carrier-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-isp-routers
+    transformation: dc3_frr_carrier
+  - name: dc3_cloud_router_frr_lab_init
+    artifact_name: frr-lab-init
+    parameters:
+      device: name__value
+    content_type: text/plain
+    targets: dc3-cloud-routers
+    transformation: dc3_frr_cloud_router
+  - name: dc3_cloud_provider_lab_init
+    artifact_name: cloud-provider-lab-init
+    parameters:
+      site: name__value
+    content_type: text/plain
+    targets: dc3-sites
+    transformation: dc3_frr_cloud_provider
+
+generator_definitions:
+  - name: dc3_site
+    file_path: generators/dc3_site.py
+    targets: dc3-sites
+    query: dc3_site
+    class_name: Dc3SiteGenerator
+    convert_query_response: false
+    execute_in_proposed_change: false   # never runs on a proposed change or after a merge to main
+    execute_after_merge: false
+    parameters:
+      site: name__value

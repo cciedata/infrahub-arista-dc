@@ -1,0 +1,4 @@
+# Recorded delta: tests/expected -> renders of the current templates and objects.
+# Empty: tests/expected is a render of the current templates and objects.
+# scripts/dc3_render_diff.py passes only when a render set differs from tests/expected by exactly the lines below.
+# tests/test_dc3_standalone.py renders the 43 files from the fake store and checks this file.

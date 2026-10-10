@@ -1,0 +1,20 @@
+VRF name: default
+-----------------
+DstAddr        MyDisc   YourDisc Interface/Transport      Type          LastUp 
+---------- ---------- ---------- -------------------- --------- ---------------
+10.27.0.1  1054129351 4101761263                  NA  multihop  10/08/26 22:11 
+10.27.0.2  2498797983 1759546335                  NA  multihop  10/08/26 22:11 
+10.27.4.0    40816575  528860256   Ethernet49/1(143)    normal  10/08/26 22:11 
+10.27.4.2   912866487 2712018135   Ethernet50/1(145)    normal  10/08/26 22:11 
+10.27.4.88 2069489548 3274906563   Ethernet51/1(147)    normal  10/08/26 22:11 
+10.27.4.90 2507917532  621652712   Ethernet52/1(154)    normal  10/08/26 22:11 
+
+   LastDown            LastDiag    State
+-------------- ------------------- -----
+         NA       No Diagnostic       Up
+         NA       No Diagnostic       Up
+         NA       No Diagnostic       Up
+         NA       No Diagnostic       Up
+         NA       No Diagnostic       Up
+         NA       No Diagnostic       Up
+

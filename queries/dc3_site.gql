@@ -1,0 +1,15 @@
+query Dc3Site($site: String!) {
+  LocationSite(name__value: $site) {
+    count
+    edges {
+      node {
+        name { value }
+        shortname { value }
+        vpc_leaf_pairs { value }
+        esi_leaf_pairs { value }
+        single_leaves { value }
+        fabric_asn { node { asn { value } } }
+      }
+    }
+  }
+}

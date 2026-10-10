@@ -1,0 +1,26 @@
+---
+# DC3 groups. Where to load: DC3 instance, main branch (scripts/bootstrap.sh, docs/BUILD.md);
+# an Infrahub instance that also holds other sites: a branch (for example dc3), never main there.
+# DC3 is not in the groups fabric-sites or oob-sites, so generators that target those groups never run on it.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: CoreStandardGroup
+  data:
+    - name: dc3-sites
+      description: Sites the DC3 generator builds (target group of generator dc3_site).
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: CoreStandardGroup
+  data:
+    # Artifact targets for the EOS configs; members are added by generator dc3_site (add only)
+    - name: dc3-spines
+      description: DC3 spines (Arista EOS); artifact target, members added by generator dc3_site
+    - name: dc3-server-leaves
+      description: DC3 server leaves (Arista EOS); artifact target, members added by generator dc3_site
+    - name: dc3-border-service-leaves
+      description: DC3 border and service leaves (Arista EOS); artifact target, members added by generator dc3_site
+    - name: dc3-l2-pairs
+      description: DC3 edge and DMZ switches (Arista EOS, L2 only); artifact target, members added by generator dc3_site

@@ -1,0 +1,105 @@
+---
+# DC3 segments: VLAN, L2 VNI, VRF and a /24 prefix per segment; sites [DC3] only.
+# Segment names must be unique (other files reference segments by name, e.g. `access_segment` in
+# dc3-10-lab-host-ports.yml), so DC3 names carry the site: DC3- in front, or in the name (CITRIX-DC3-1500).
+# VLAN / L2 VNI reuse across segment objects is allowed.
+# Load after dc3-06-fabric.yml (DC3 instance: main; an Infrahub instance that also holds other sites: a branch,
+# for example dc3).
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamPrefix
+  data:
+    # Segment subnets: one /24 per segment, gateway .1
+    - {prefix: 10.24.10.0/24, description: "PROD VLAN 1010 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.11.0/24, description: "PROD VLAN 1011 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.12.0/24, description: "PROD VLAN 1012 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.13.0/24, description: "PROD VLAN 1013 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.14.0/24, description: "PROD VLAN 1014 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.15.0/24, description: "PROD VLAN 1015 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.16.0/24, description: "PROD VLAN 1016 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.17.0/24, description: "PROD VLAN 1017 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.40.0/24, description: "PROD VLAN 1040 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.41.0/24, description: "PROD VLAN 1041 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.42.0/24, description: "PROD VLAN 1042 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.43.0/24, description: "PROD VLAN 1043 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.44.0/24, description: "PROD VLAN 1044 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.45.0/24, description: "PROD VLAN 1045 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.46.0/24, description: "PROD VLAN 1046 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.47.0/24, description: "PROD VLAN 1047 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.48.0/24, description: "PROD VLAN 1048 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.49.0/24, description: "PROD VLAN 1049 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.50.0/24, description: "PROD VLAN 1050 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.51.0/24, description: "PROD VLAN 1051 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.74.0/24, description: "DEV VLAN 1110 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.75.0/24, description: "DEV VLAN 1111 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.76.0/24, description: "DEV VLAN 1112 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.77.0/24, description: "DEV VLAN 1113 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.78.0/24, description: "DEV VLAN 1114 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.79.0/24, description: "DEV VLAN 1115 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.80.0/24, description: "DEV VLAN 1116 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.81.0/24, description: "DEV VLAN 1117 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.82.0/24, description: "DEV VLAN 1118 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.104.0/24, description: "DEV VLAN 1140 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.105.0/24, description: "DEV VLAN 1141 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.106.0/24, description: "DEV VLAN 1142 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.107.0/24, description: "DEV VLAN 1143 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.108.0/24, description: "DEV VLAN 1144 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.109.0/24, description: "DEV VLAN 1145 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.110.0/24, description: "DEV VLAN 1146 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.111.0/24, description: "DEV VLAN 1147 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.112.0/24, description: "DEV VLAN 1148 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.113.0/24, description: "DEV VLAN 1149 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.114.0/24, description: "DEV VLAN 1150 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.144.0/24, description: "CITRIX VLAN 1500 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.145.0/24, description: "CITRIX VLAN 1501 (DC3)", status: active, member_type: address, site: DC3}
+    - {prefix: 10.24.176.0/24, description: "REPLICATION VLAN 1598 (DC3)", status: active, member_type: address, site: DC3}
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricSegment
+  data:
+    - {name: DC3-PROD-1010, vlan_id: 1010, l2_vni: 11010, vrf: PROD, prefix: ["default", "10.24.10.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1011, vlan_id: 1011, l2_vni: 11011, vrf: PROD, prefix: ["default", "10.24.11.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1012, vlan_id: 1012, l2_vni: 11012, vrf: PROD, prefix: ["default", "10.24.12.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1013, vlan_id: 1013, l2_vni: 11013, vrf: PROD, prefix: ["default", "10.24.13.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1014, vlan_id: 1014, l2_vni: 11014, vrf: PROD, prefix: ["default", "10.24.14.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1015, vlan_id: 1015, l2_vni: 11015, vrf: PROD, prefix: ["default", "10.24.15.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1016, vlan_id: 1016, l2_vni: 11016, vrf: PROD, prefix: ["default", "10.24.16.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1017, vlan_id: 1017, l2_vni: 11017, vrf: PROD, prefix: ["default", "10.24.17.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1040, vlan_id: 1040, l2_vni: 11040, vrf: PROD, prefix: ["default", "10.24.40.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1041, vlan_id: 1041, l2_vni: 11041, vrf: PROD, prefix: ["default", "10.24.41.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1042, vlan_id: 1042, l2_vni: 11042, vrf: PROD, prefix: ["default", "10.24.42.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1043, vlan_id: 1043, l2_vni: 11043, vrf: PROD, prefix: ["default", "10.24.43.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1044, vlan_id: 1044, l2_vni: 11044, vrf: PROD, prefix: ["default", "10.24.44.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1045, vlan_id: 1045, l2_vni: 11045, vrf: PROD, prefix: ["default", "10.24.45.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1046, vlan_id: 1046, l2_vni: 11046, vrf: PROD, prefix: ["default", "10.24.46.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1047, vlan_id: 1047, l2_vni: 11047, vrf: PROD, prefix: ["default", "10.24.47.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1048, vlan_id: 1048, l2_vni: 11048, vrf: PROD, prefix: ["default", "10.24.48.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1049, vlan_id: 1049, l2_vni: 11049, vrf: PROD, prefix: ["default", "10.24.49.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1050, vlan_id: 1050, l2_vni: 11050, vrf: PROD, prefix: ["default", "10.24.50.0/24"], sites: [DC3]}
+    - {name: DC3-PROD-1051, vlan_id: 1051, l2_vni: 11051, vrf: PROD, prefix: ["default", "10.24.51.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1110, vlan_id: 1110, l2_vni: 11110, vrf: DEV, prefix: ["default", "10.24.74.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1111, vlan_id: 1111, l2_vni: 11111, vrf: DEV, prefix: ["default", "10.24.75.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1112, vlan_id: 1112, l2_vni: 11112, vrf: DEV, prefix: ["default", "10.24.76.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1113, vlan_id: 1113, l2_vni: 11113, vrf: DEV, prefix: ["default", "10.24.77.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1114, vlan_id: 1114, l2_vni: 11114, vrf: DEV, prefix: ["default", "10.24.78.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1115, vlan_id: 1115, l2_vni: 11115, vrf: DEV, prefix: ["default", "10.24.79.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1116, vlan_id: 1116, l2_vni: 11116, vrf: DEV, prefix: ["default", "10.24.80.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1117, vlan_id: 1117, l2_vni: 11117, vrf: DEV, prefix: ["default", "10.24.81.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1118, vlan_id: 1118, l2_vni: 11118, vrf: DEV, prefix: ["default", "10.24.82.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1140, vlan_id: 1140, l2_vni: 11140, vrf: DEV, prefix: ["default", "10.24.104.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1141, vlan_id: 1141, l2_vni: 11141, vrf: DEV, prefix: ["default", "10.24.105.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1142, vlan_id: 1142, l2_vni: 11142, vrf: DEV, prefix: ["default", "10.24.106.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1143, vlan_id: 1143, l2_vni: 11143, vrf: DEV, prefix: ["default", "10.24.107.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1144, vlan_id: 1144, l2_vni: 11144, vrf: DEV, prefix: ["default", "10.24.108.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1145, vlan_id: 1145, l2_vni: 11145, vrf: DEV, prefix: ["default", "10.24.109.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1146, vlan_id: 1146, l2_vni: 11146, vrf: DEV, prefix: ["default", "10.24.110.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1147, vlan_id: 1147, l2_vni: 11147, vrf: DEV, prefix: ["default", "10.24.111.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1148, vlan_id: 1148, l2_vni: 11148, vrf: DEV, prefix: ["default", "10.24.112.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1149, vlan_id: 1149, l2_vni: 11149, vrf: DEV, prefix: ["default", "10.24.113.0/24"], sites: [DC3]}
+    - {name: DC3-DEV-1150, vlan_id: 1150, l2_vni: 11150, vrf: DEV, prefix: ["default", "10.24.114.0/24"], sites: [DC3]}
+    - {name: CITRIX-DC3-1500, vlan_id: 1500, l2_vni: 11500, vrf: CITRIX, prefix: ["default", "10.24.144.0/24"], sites: [DC3]}
+    - {name: CITRIX-DC3-1501, vlan_id: 1501, l2_vni: 11501, vrf: CITRIX, prefix: ["default", "10.24.145.0/24"], sites: [DC3]}
+    - {name: REPLICATION-DC3-1598, vlan_id: 1598, l2_vni: 11598, vrf: REPLICATION, prefix: ["default", "10.24.176.0/24"], sites: [DC3]}

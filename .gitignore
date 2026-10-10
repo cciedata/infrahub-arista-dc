@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+# Standalone build: local secrets and settings, the uv environment, rendered configs (filled with secrets at deploy
+# time), run results
+.env
+infrahubctl.toml
+.venv/
+lab/configs/
+lab/results/*
+!lab/results/.gitignore
+/results/
+# ZTP server event log
+ztp/ztp-events.jsonl

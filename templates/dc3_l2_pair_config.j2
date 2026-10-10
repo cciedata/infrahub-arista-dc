@@ -1,0 +1,148 @@
+{# DC3 L2-only MLAG pairs EDGE1-EDGE2 and DMZ1-DMZ2 (Arista EOS 4.36.2F) startup-config.
+   No BGP, no loopbacks: Management1 and the MLAG plumbing, plus
+   the pair's L2-only VLANs and the MLAG port-channels toward the stand-ins (EDGE: ISP routers, Internet / SD-WAN /
+   VPN FW outside legs; DMZ: Internet FW DMZ leg), trunking every L2 VLAN of the pair. One template for both roles.
+   Lines whose EOS syntax is not verified carry a Jinja comment that says what to check. #}
+{# Decided constants: one place to change them (plans/dc3-values.md); same values as dc3_leaf_config.j2 #}
+{% set mgmt_vrf = "MGMT" -%}
+{% set keepalive_vrf = "VPC-KEEPALIVE" -%}                     {#- MLAG heartbeat VRF on the keepalive link -#}
+{% set mlag_vlan = 3900 -%}                                    {#- edge/DMZ too -#}
+{% set mlag_vlan_name = "VPC-BACKUP-UNDERLAY" -%}              {#- name of VLAN 3900 -#}
+{% set mlag_trunk_group = "MLAGPEER" -%}                       {#- trunk group of the MLAG peer VLAN -#}
+{% set heartbeat_interval = 4000 -%}
+{% set dual_primary_detection = "delay 5 action errdisable all-interfaces" -%}
+{% set dual_primary_recovery = "mlag 360 non-mlag 300" -%}
+{% set reload_delay_mlag = 360 -%}                             {#- MLAG reload delay -#}
+{% set reload_delay_non_mlag = 360 -%}                         {#- MLAG reload delay, non-MLAG ports -#}
+{% set lacp_mode = "active" -%}
+{% macro vlan_ranges(ids) %}{% set ns = namespace(out=[], start=none, prev=none) %}{% for v in ids %}{% if ns.start is none %}{% set ns.start = v %}{% elif v != ns.prev + 1 %}{% set ns.out = ns.out + [ns.start ~ ("-" ~ ns.prev if ns.prev != ns.start else "")] %}{% set ns.start = v %}{% endif %}{% set ns.prev = v %}{% endfor %}{% if ns.start is not none %}{% set ns.out = ns.out + [ns.start ~ ("-" ~ ns.prev if ns.prev != ns.start else "")] %}{% endif %}{{ ns.out | join(",") }}{% endmacro -%}
+{% macro peer31(cidr) %}{% set o = cidr.split("/")[0].split(".") %}{% set last = o[3] | int %}{{ o[:3] | join(".") }}.{{ last + 1 if last % 2 == 0 else last - 1 }}{% endmacro -%}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set physical = interfaces | selectattr("__typename", "equalto", "InterfacePhysical") | list -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set mgmt = physical | selectattr("role.value", "equalto", "management") | list | first -%}
+{% set eth_all = physical | selectattr("role.value", "in", ["vpc_keepalive", "vpc_peer_link", "peering"]) | list -%}
+{% set eth_names = eth_all | map(attribute="name.value") | list | sort_interface_list -%}
+{% set pair = device.switch_pair.node -%}
+{% set l2vlans = pair.l2_vlans.edges | map(attribute="node") | list | sort(attribute="vlan_id.value") -%}
+{% set vlan_list = vlan_ranges(l2vlans | map(attribute="vlan_id.value") | list) -%}
+{% set att_pos = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | selectattr("role.value", "equalto", "peering") | list -%}
+{% set att_po_names = att_pos | map(attribute="name.value") | list | sort_interface_list -%}
+{% set peer = pair.members.edges | map(attribute="node") | rejectattr("name.value", "equalto", device.name.value) | list | first -%}
+{% set keepalive = physical | selectattr("role.value", "equalto", "vpc_keepalive") | list | first -%}
+{% set svi = virtual | selectattr("role.value", "equalto", "vpc_backup") | list | first -%}
+{% set po = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | selectattr("role.value", "equalto", "vpc_peer_link") | list | first -%}
+{# Values derived by rule #}
+{% set mgmt_addr = mgmt.ip_addresses.edges[0].node.address.value -%}
+{% set mgmt_gw = mgmt_addr | ipaddress_interface("network") | string | get_first_usable -%}
+{% set peer_keepalive_ip = peer.interfaces.edges[0].node.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set svi_addr = svi.ip_addresses.edges[0].node.address.value -%}
+{% set peer_svi_ip = peer31(svi_addr) -%}
+{% set po_number = po.name.value | replace("Port-Channel", "") -%}
+hostname {{ device.name.value }}
+!
+service routing protocols model multi-agent
+!
+{# MSTP, priority 8192 on every leaf and MLAG member; EOS syntax until the smoke test #}
+spanning-tree mode mstp
+spanning-tree mst 0 priority 8192
+!
+{# local AAA: eAPI user, secret filled at delivery time (lab/dc3_secrets.py) privilege 15 #}
+aaa authentication login default local
+aaa authorization exec default local
+!
+username dc3-automation privilege 15 role network-admin secret sha512 __DC3_AUTOMATION_HASH__
+!
+{% for v in l2vlans %}
+vlan {{ v.vlan_id.value }}
+   name {{ v.name.value }}
+!
+{% endfor %}
+vlan {{ mlag_vlan }}
+   name {{ mlag_vlan_name }}
+   trunk group {{ mlag_trunk_group }}
+!
+no spanning-tree vlan-id {{ mlag_vlan }}
+!
+vrf instance {{ mgmt_vrf }}
+!
+vrf instance {{ keepalive_vrf }}
+!
+{% for name in att_po_names %}{% set intf = att_pos | selectattr("name.value", "equalto", name) | list | first %}
+{# Trunk with every L2 VLAN of the pair, edge trunk + BPDU guard; MLAG id = Po number.
+   `spanning-tree portfast` on a trunk port-channel: syntax not verified #}
+interface {{ intf.name.value }}
+   description {{ intf.description.value }}
+   switchport mode trunk
+   switchport trunk allowed vlan {{ vlan_list }}
+   mlag {{ intf.name.value | replace("Port-Channel", "") }}
+   spanning-tree portfast
+   spanning-tree bpduguard enable
+!
+{% endfor %}
+interface {{ po.name.value }}
+   description {{ po.description.value }}
+   switchport mode trunk
+   switchport trunk group {{ mlag_trunk_group }}
+!
+{% for name in eth_names %}{% set intf = eth_all | selectattr("name.value", "equalto", name) | list | first %}
+interface {{ intf.name.value }}
+   description {{ intf.description.value }}
+{% if intf.role.value == "vpc_keepalive" %}
+{# MLAG heartbeat over a front-panel port in a non-mgmt VRF: check in the lab; edge port 34 numbering #}
+   no shutdown
+   mtu {{ intf.mtu.value }}
+   no switchport
+   vrf {{ keepalive_vrf }}
+   ip address {{ intf.ip_addresses.edges[0].node.address.value }}
+{% elif intf.role.value == "peering" %}
+   no shutdown
+   channel-group {{ intf.port_channel.node.name.value | replace("Port-Channel", "") }} mode {{ lacp_mode }}
+{% else %}
+   no shutdown
+   channel-group {{ po_number }} mode {{ lacp_mode }}
+{% endif %}
+!
+{% endfor %}
+interface {{ mgmt.name.value }}
+   description {{ mgmt.description.value }}
+   vrf {{ mgmt_vrf }}
+   ip address {{ mgmt_addr }}
+!
+interface {{ svi.name.value }}
+   description {{ svi.description.value }}
+   mtu {{ svi.mtu.value }}
+   no autostate
+   ip address {{ svi_addr }}
+!
+{# AVD form. No ip routing on L2-only pairs #}
+no ip routing vrf {{ mgmt_vrf }}
+!
+ip route vrf {{ mgmt_vrf }} 0.0.0.0/0 {{ mgmt_gw }}
+!
+mlag configuration
+   domain-id {{ pair.name.value }}
+   local-interface {{ svi.name.value }}
+   peer-address {{ peer_svi_ip }}
+   peer-address heartbeat {{ peer_keepalive_ip }} vrf {{ keepalive_vrf }}
+   peer-link {{ po.name.value }}
+{# check: unit of heartbeat-interval on the 4.36.2F parser (ms per the command reference) #}
+   heartbeat-interval {{ heartbeat_interval }}
+{# check: errdisable spelling (syntax line says erridisable) #}
+   dual-primary detection {{ dual_primary_detection }}
+{# check: parser accepts the recovery delays #}
+   dual-primary recovery delay {{ dual_primary_recovery }}
+   reload-delay mlag {{ reload_delay_mlag }}
+   reload-delay non-mlag {{ reload_delay_non_mlag }}
+!
+{# eAPI over HTTPS in VRF MGMT; login: user dc3-automation, local AAA #}
+management api http-commands
+   protocol https
+   no shutdown
+   !
+   vrf {{ mgmt_vrf }}
+      no shutdown
+!
+end

@@ -1,0 +1,60 @@
+{# DC3 carrier stand-in behind one ISP router (FRR 10.6.0), rendered per ISP router from its data:
+   the carrier side of the /30 (.1), the provider's ASN, our router's
+   address and ASN; the carrier originates 0/0 and its internet host subnet. No BGP password. #}
+{% set bfd_tx = 999 -%}{% set bfd_rx = 999 -%}{% set bfd_mult = 3 -%}
+{% set carrier_host = 1 -%}
+{% set mtu = 9214 -%}                                                    {#- MTU on the carrier link -#}
+{% set bfd_profile = "CARRIER-BFD" -%}                                   {#- BFD profile name -#}
+{% set host_net = {"ISP-A": "198.18.1.0/24", "ISP-B": "198.18.2.0/24"} -%}{#- internet test host subnet per carrier -#}
+{% set host_gw = 1 -%}                                                   {#- host .10, carrier .1 -#}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set our_asn = device.asn.node.asn.value -%}
+{% set carrier = device.interfaces.edges | map(attribute="node") | selectattr("__typename", "equalto", "InterfacePhysical") | selectattr("role.value", "equalto", "upstream") | list | first -%}
+{% set pns = namespace(asn=none, name=none) -%}
+{% for a in data.ProviderAsns.edges | map(attribute="node") | list %}{% if a.provider.node is not none and carrier.description.value.startswith(a.provider.node.name.value ~ " ") %}{% set pns.asn = a.asn.value %}{% set pns.name = a.provider.node.name.value %}{% endif %}{% endfor -%}
+{% macro host(p, n) %}{% set o = p.split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}/{{ p.split("/")[1] }}{% endmacro -%}
+{% set our_addr = carrier.ip_addresses.edges[0].node.address.value -%}
+{% set carrier_addr = host(our_addr | ipaddress_interface("network") | string, carrier_host) -%}
+{% set our_ip = our_addr | ipaddress_interface("ip") -%}
+{% set hnet = host_net[pns.name] -%}
+#!/bin/sh
+# {{ site_name }}-{{ pns.name }}: lab stand-in for carrier {{ pns.name }} (AS {{ pns.asn }}) facing {{ name }} {{ carrier.name.value }}.
+# Rendered by Infrahub from {{ name }}'s data, do not edit. Interfaces: "isp" toward {{ name }}, "host" toward the internet test host.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+ip link set isp mtu {{ mtu }} up
+ip addr replace {{ carrier_addr }} dev isp
+ip link set host up
+ip addr replace {{ host(hnet, host_gw) }} dev host
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ site_name }}-{{ pns.name }}
+service integrated-vtysh-config
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_tx }}
+  receive-interval {{ bfd_rx }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+router bgp {{ pns.asn }}
+ bgp router-id {{ carrier_addr | ipaddress_interface("ip") }}
+ no bgp ebgp-requires-policy
+ neighbor {{ our_ip }} remote-as {{ our_asn }}
+ neighbor {{ our_ip }} description {{ name }}
+ neighbor {{ our_ip }} bfd profile {{ bfd_profile }}
+ address-family ipv4 unicast
+  network {{ hnet }}
+  neighbor {{ our_ip }} default-originate
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ site_name }}-{{ pns.name }} stand-in ready"

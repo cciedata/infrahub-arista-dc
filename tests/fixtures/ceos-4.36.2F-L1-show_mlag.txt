@@ -1,0 +1,25 @@
+MLAG Configuration:              
+domain-id                          :      DC3-MLAG-L1-L2
+local-interface                    :            Vlan3900
+peer-address                       :           10.27.3.1
+peer-link                          :    Port-Channel1000
+hb-peer-address                    :          10.27.17.1
+hb-peer-vrf                        :       VPC-KEEPALIVE
+peer-config                        :          consistent
+                                                       
+MLAG Status:                     
+state                              :              Active
+negotiation status                 :           Connected
+peer-link status                   :                  Up
+local-int status                   :                  Up
+system-id                          :   02:1c:73:d7:72:11
+dual-primary detection             :          Configured
+dual-primary interface errdisabled :               False
+                                                       
+MLAG Ports:                      
+Disabled                           :                   0
+Configured                         :                   0
+Inactive                           :                   0
+Active-partial                     :                   0
+Active-full                        :                   0
+

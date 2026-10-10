@@ -1,0 +1,577 @@
+---
+version: "1.0"
+generics:
+  - name: SwitchPair
+    namespace: Fabric
+    label: Switch Pair
+    description: Two switches that act as one pair for dual-homed devices (vPC or ESI).
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: members
+        peer: DcimDevice
+        identifier: leaf_pair__device
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 2
+        max_count: 2
+
+nodes:
+  - name: AutonomousSystem
+    namespace: Fabric
+    label: Autonomous System
+    description: A BGP AS number, ours or a peer's.
+    human_friendly_id:
+      - asn__value
+    display_label: "{{ asn__value }}"
+    attributes:
+      - name: asn
+        label: ASN
+        kind: Number
+        unique: true
+        optional: false
+        parameters:
+          min_value: 1
+          max_value: 4294967295
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: devices
+        peer: DcimDevice
+        identifier: autonomous_system__device
+        kind: Generic
+        cardinality: many
+        optional: true
+      - name: fabric_site
+        label: Fabric site
+        peer: LocationSite
+        identifier: site__fabric_asn
+        kind: Attribute
+        cardinality: one
+        optional: true
+      # Carrier ASNs link to their provider
+      - name: provider
+        peer: OrganizationProvider
+        identifier: provider__autonomous_system
+        kind: Attribute
+        cardinality: one
+        optional: true
+
+  - name: VRF
+    namespace: Fabric
+    label: VRF
+    description: A tenant routing table and its L3 VNI.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: l3_vni
+        label: L3 VNI
+        kind: Number
+        unique: true
+        optional: false
+        parameters:
+          min_value: 1
+          max_value: 16777215
+      - name: l3_vni_vlan
+        label: L3 VNI VLAN
+        kind: Number
+        unique: true
+        optional: false
+        parameters:
+          min_value: 2500
+          max_value: 2599
+      - name: multisite
+        label: Multi-Site
+        description: Routes cross the BGWs to the other site.
+        kind: Boolean
+        optional: false
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: sites
+        peer: LocationSite
+        identifier: vrf__site
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 1
+      - name: segments
+        peer: FabricSegment
+        identifier: segment__vrf
+        kind: Generic
+        cardinality: many
+        optional: true
+      # The VRF's summary blocks (site set on the prefix); the service leaf sends them to the Internal FW
+      - name: summaries
+        label: Summary Prefixes
+        peer: IpamPrefix
+        identifier: vrf__summary
+        kind: Attribute
+        cardinality: many
+        optional: true
+
+  - name: Segment
+    namespace: Fabric
+    label: L2 Segment
+    description: A server VLAN, its L2 VNI and its subnet.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    uniqueness_constraints:
+      - ["name__value"]
+      - ["prefix"]
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: vlan_id
+        label: VLAN ID
+        kind: Number
+        optional: false
+        parameters:
+          min_value: 1000
+          max_value: 1599
+      - name: l2_vni
+        label: L2 VNI
+        kind: Number
+        optional: false
+        parameters:
+          min_value: 11000
+          max_value: 11599
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: vrf
+        label: VRF
+        peer: FabricVRF
+        identifier: segment__vrf
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: prefix
+        peer: IpamPrefix
+        identifier: segment__prefix
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: sites
+        peer: LocationSite
+        identifier: segment__site
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 1
+
+  - name: VpcDomain
+    namespace: Fabric
+    label: vPC Domain
+    description: A vPC switch pair.
+    inherit_from:
+      - FabricSwitchPair
+    attributes:
+      - name: domain_id
+        label: Domain ID
+        kind: Number
+        unique: true
+        optional: false
+        parameters:
+          min_value: 1
+          max_value: 1000
+    relationships:
+      - name: anycast_vtep
+        label: Anycast VTEP
+        peer: IpamIPAddress
+        identifier: vpc_domain__anycast_vtep
+        kind: Attribute
+        cardinality: one
+        optional: true
+      # Reverse sides, so a device's config query reaches them through its pair
+      - name: attachments
+        peer: FabricAttachment
+        identifier: attachment__switch_pair
+        kind: Generic
+        cardinality: many
+        optional: true
+      - name: l2_vlans
+        label: L2-only VLANs
+        peer: FabricL2Vlan
+        identifier: l2vlan__switch_pair
+        kind: Generic
+        cardinality: many
+        optional: true
+
+  - name: EsiPair
+    namespace: Fabric
+    label: ESI Pair
+    description: Two leaves that share Ethernet Segments (ESI multihoming).
+    inherit_from:
+      - FabricSwitchPair
+
+  # Port-channel kind; the vPC peer-link is its first user,
+  # host port-channels reuse it later. A physical port belongs to at most one.
+  - name: PortChannel
+    namespace: Interface
+    label: Port-Channel Interface
+    description: "Link aggregation of physical ports on one device"
+    include_in_menu: false
+    inherit_from:
+      - DcimInterface
+      - InterfaceLayer2
+      - InterfaceLayer3
+      - InterfaceHasSubInterface    # FW/router VLAN sub-interfaces on bundles
+    relationships:
+      - name: members
+        label: Members
+        peer: InterfacePhysical
+        identifier: port_channel__member
+        kind: Attribute
+        cardinality: many
+        optional: true
+
+  # One attachment per (attached device pair, VRF) on a vPC leaf pair.
+  # The /29 is fixed by slot: .1 leaf A, .2 leaf B, .3 the attached pair (A/P units share it).
+  # BGP sessions are derived from it; the peer ASN comes from the attached devices.
+  - name: Attachment
+    namespace: Fabric
+    label: Attachment
+    description: A firewall or router pair attached to a vPC leaf pair in one VRF, with its /29 and VLAN.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    uniqueness_constraints:
+      - ["name__value"]
+      - ["prefix"]
+      - ["switch_pair", "vlan_id__value"]   # one VLAN per leaf pair; several attachments share a VRF (TRANSIT on the border leaves)
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: slot
+        description: Fixed slot in the owning block (TRANSIT /24 or Internal FW /25).
+        kind: Number
+        optional: false
+        parameters:
+          min_value: 0
+          max_value: 31
+      - name: vlan_id
+        label: VLAN ID
+        kind: Number
+        optional: false
+        parameters:
+          min_value: 3000
+          max_value: 3998
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: vrf
+        label: VRF
+        peer: FabricVRF
+        identifier: attachment__vrf
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: prefix
+        peer: IpamPrefix
+        identifier: attachment__prefix
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: switch_pair
+        label: Leaf Pair
+        peer: FabricVpcDomain
+        identifier: attachment__switch_pair
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: devices
+        label: Attached Devices
+        peer: DcimDevice
+        identifier: attachment__device
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 1
+        max_count: 2
+      - name: site
+        peer: LocationSite
+        identifier: attachment__site
+        kind: Attribute
+        cardinality: one
+        optional: false
+
+  # An L2-only VLAN on a vPC pair (no VRF, no VNI): edge VLAN 3200, DMZ VLANs 1400-1415.
+  - name: L2Vlan
+    namespace: Fabric
+    label: L2-only VLAN
+    description: A VLAN that only bridges on one vPC pair (no VRF, no VNI); the gateway is outside the fabric.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    uniqueness_constraints:
+      - ["name__value"]
+      - ["switch_pair", "vlan_id__value"]
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: vlan_id
+        label: VLAN ID
+        kind: Number
+        optional: false
+        parameters:
+          min_value: 2
+          max_value: 4094
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: switch_pair
+        label: Switch Pair
+        peer: FabricVpcDomain
+        identifier: l2vlan__switch_pair
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: site
+        peer: LocationSite
+        identifier: l2vlan__site
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: prefix
+        peer: IpamPrefix
+        identifier: l2vlan__prefix
+        kind: Attribute
+        cardinality: one
+        optional: true
+
+  # An SD-WAN branch, sample data (2 branches). The hub configs use BGP dynamic
+  # neighbors and do not list branches; the data feeds the branch lab stand-in later.
+  - name: Branch
+    namespace: Fabric
+    label: SD-WAN Branch
+    description: An SD-WAN branch site with its number, LAN /24 and the hubs it dials.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    uniqueness_constraints:
+      - ["name__value"]
+      - ["lan_prefix"]
+    attributes:
+      - name: name
+        kind: Text
+        unique: true
+        optional: false
+      - name: branch_id
+        label: Branch Number
+        description: Index of the branch LAN /24 inside 10.64.0.0/12 (row 41 B).
+        kind: Number
+        unique: true
+        optional: false
+        parameters:
+          min_value: 1
+          max_value: 4095
+      - name: description
+        kind: Text
+        optional: true
+    relationships:
+      - name: lan_prefix
+        label: LAN Prefix
+        peer: IpamPrefix
+        identifier: branch__lan_prefix
+        kind: Attribute
+        cardinality: one
+        optional: false
+      - name: hubs
+        label: Hub Sites
+        description: Sites whose SD-WAN hub this branch dials (dual-homed, row 44 C).
+        peer: LocationSite
+        identifier: branch__hub
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 1
+
+  # A VPN partner. Its own address space stays out of our IPAM and routing (it may
+  # overlap ours): peer IP and protected networks are attributes; the translated /28s (one per site) are our prefixes.
+  - name: Partner
+    namespace: Fabric
+    label: VPN Partner
+    description: An external partner on a route-based IKEv2 tunnel from the VPN-partner FWs, source-NATed to its own /28 per site.
+    human_friendly_id:
+      - name__value
+    display_label: "{{ name__value }}"
+    uniqueness_constraints:
+      - ["name__value"]
+    attributes:
+      - name: name
+        description: Also the FortiOS tunnel name (15 characters at most).
+        kind: Text
+        unique: true
+        optional: false
+      - name: description
+        kind: Text
+        optional: true
+      - name: peer_ip
+        label: Peer IP
+        description: The partner's public IPsec gateway.
+        kind: IPHost
+        optional: false
+      - name: protected_prefixes
+        label: Protected Prefixes
+        description: Partner networks behind its gateway (static routes and phase2 selectors), as a list of prefixes.
+        kind: List
+        optional: false
+    relationships:
+      - name: translated_prefixes
+        label: Translated /28s
+        description: One /28 per site from that site's PARTNER block; the site is set on the prefix.
+        peer: IpamPrefix
+        identifier: partner__translated_prefix
+        kind: Attribute
+        cardinality: many
+        optional: false
+        min_count: 1
+
+extensions:
+  nodes:
+    - kind: DcimDevice
+      attributes:
+        - name: os_version
+          label: OS Version
+          description: Intended software release (target state).
+          kind: Text
+          optional: true
+      relationships:
+        - name: asn
+          label: ASN
+          peer: FabricAutonomousSystem
+          identifier: autonomous_system__device
+          kind: Attribute
+          cardinality: one
+          optional: true
+        - name: switch_pair
+          label: Switch Pair
+          peer: FabricSwitchPair
+          identifier: leaf_pair__device
+          kind: Attribute
+          cardinality: one
+          optional: true
+    - kind: DcimDeviceType
+      attributes:
+        - name: esi_min_release
+          label: ESI Minimum Release
+          description: Lowest release that supports ESI multihoming on this hardware.
+          kind: Text
+          optional: true
+    - kind: InterfacePhysical
+      relationships:
+        - name: port_channel
+          label: Port-Channel
+          peer: InterfacePortChannel
+          identifier: port_channel__member
+          kind: Attribute
+          cardinality: one
+          optional: true
+        # A server-facing access port carries one segment (its access VLAN)
+        - name: access_segment
+          label: Access Segment
+          description: Segment (VLAN) carried untagged on this access port.
+          peer: FabricSegment
+          identifier: interface__access_segment
+          kind: Attribute
+          cardinality: one
+          optional: true
+    - kind: LocationSite
+      attributes:
+        - name: vpc_leaf_pairs
+          label: vPC leaf pairs
+          description: Number of vPC server-leaf pairs the generator builds in this site.
+          kind: Number
+          optional: true
+        - name: esi_leaf_pairs
+          label: ESI leaf pairs
+          description: Number of ESI server-leaf pairs the generator builds in this site.
+          kind: Number
+          optional: true
+        - name: single_leaves
+          label: Single-homed leaves
+          description: Number of single-homed server leaves the generator builds in this site.
+          kind: Number
+          optional: true
+      relationships:
+        - name: vrfs
+          label: VRFs
+          peer: FabricVRF
+          identifier: vrf__site
+          kind: Generic
+          cardinality: many
+          optional: true
+        - name: segments
+          peer: FabricSegment
+          identifier: segment__site
+          kind: Generic
+          cardinality: many
+          optional: true
+        - name: owned_prefixes
+          label: Owned Prefixes
+          peer: IpamPrefix
+          identifier: prefix__site
+          kind: Generic
+          cardinality: many
+          optional: true
+        - name: fabric_asn
+          label: Fabric ASN
+          peer: FabricAutonomousSystem
+          identifier: site__fabric_asn
+          kind: Attribute
+          cardinality: one
+          optional: true
+    - kind: IpamPrefix
+      relationships:
+        - name: segments
+          peer: FabricSegment
+          identifier: segment__prefix
+          kind: Generic
+          cardinality: many
+          optional: true
+        - name: site
+          label: Owner Site
+          description: Site that owns this block; empty means shared.
+          peer: LocationSite
+          identifier: prefix__site
+          kind: Attribute
+          cardinality: one
+          optional: true
+    # Carrier ASNs link to their provider
+    - kind: OrganizationProvider
+      relationships:
+        - name: asns
+          label: ASNs
+          peer: FabricAutonomousSystem
+          identifier: provider__autonomous_system
+          kind: Generic
+          cardinality: many
+          optional: true

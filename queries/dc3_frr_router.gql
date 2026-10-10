@@ -1,0 +1,86 @@
+# DC3 ISP router and cloud router stand-ins (FRR) and the carrier stand-ins rendered from the
+# ISP routers. One query for both router families, with the leaf
+# pair's ASNs on the cloud routers' attachment (DC3 leaves have one ASN per pair).
+query Dc3FrrRouter($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        asn { node { asn { value } } }
+        primary_address { node { address { value } } }
+        location {
+          node {
+            ... on LocationSite {
+              name { value }
+              owned_prefixes { edges { node { prefix { value } } } }
+              vrfs {
+                edges {
+                  node {
+                    name { value }
+                    summaries { edges { node { prefix { value } site { node { name { value } } } } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } }
+              ... on InterfacePhysical { port_channel { node { name { value } } } }
+              ... on InterfacePortChannel { members { edges { node { name { value } } } } }
+              ... on InterfaceVirtual { parent_interface { node { ... on DcimInterface { name { value } } } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  ProviderAsns: FabricAutonomousSystem {
+    edges { node { asn { value } provider { node { name { value } } } } }
+  }
+  InternetFws: DcimDevice(role__value: "internet_fw") {
+    edges { node { name { value } location { node { name { value } } } asn { node { asn { value } } } } }
+  }
+  # WAN loopback of the SDWAN FW -> static route for its public /28
+  SdwanFws: DcimDevice(role__value: "sdwan_fw") {
+    edges {
+      node {
+        name { value }
+        role { value }
+        location { node { name { value } } }
+        interfaces(name__value: "LO-WAN") { edges { node { name { value } ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } } } } }
+      }
+    }
+  }
+  # WAN loopback of the VPN FW -> static route for its public /28
+  VpnFws: DcimDevice(role__value: "vpn_fw") {
+    edges {
+      node {
+        name { value }
+        role { value }
+        location { node { name { value } } }
+        interfaces(name__value: "LO-WAN") { edges { node { name { value } ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } } } } }
+      }
+    }
+  }
+  FabricAttachment(devices__name__value: $device) {
+    edges {
+      node {
+        name { value }
+        vlan_id { value }
+        prefix { node { prefix { value } } }
+        vrf { node { name { value } } }
+        switch_pair { node { name { value } members { edges { node { name { value } asn { node { asn { value } } } } } } } }
+      }
+    }
+  }
+}

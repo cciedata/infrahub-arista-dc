@@ -1,0 +1,813 @@
+# DC3 cEOS lab (containerlab). Written by scripts/dc3_lab_topology.py from the generator plan (generators/dc3_plan.py); do not edit.
+# Startup configs: lab/configs/<device>.cfg (infrahubctl render ... --out); mapping files: lab/intf-mapping/.
+name: dc3
+mgmt:
+  network: dc3-mgmt
+  ipv4-subnet: 10.250.32.0/24
+topology:
+  kinds:
+    arista_ceos:
+      image: ceos:4.36.2F
+      env:
+        CLAB_MGMT_VRF: MGMT
+    linux:
+      image: quay.io/frrouting/frr:10.6.0
+  nodes:
+    DC3-S1:
+      kind: arista_ceos
+      startup-config: configs/DC3-S1.cfg
+      binds:
+      - intf-mapping/DCS-7060DX5-64S.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.2
+    DC3-S2:
+      kind: arista_ceos
+      startup-config: configs/DC3-S2.cfg
+      binds:
+      - intf-mapping/DCS-7060DX5-64S.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.3
+    DC3-L1:
+      kind: arista_ceos
+      startup-config: configs/DC3-L1.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.4
+    DC3-L2:
+      kind: arista_ceos
+      startup-config: configs/DC3-L2.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.5
+    DC3-L3:
+      kind: arista_ceos
+      startup-config: configs/DC3-L3.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.6
+    DC3-L4:
+      kind: arista_ceos
+      startup-config: configs/DC3-L4.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.7
+    DC3-L5:
+      kind: arista_ceos
+      startup-config: configs/DC3-L5.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.8
+    DC3-L6:
+      kind: arista_ceos
+      startup-config: configs/DC3-L6.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.9
+    DC3-L7:
+      kind: arista_ceos
+      startup-config: configs/DC3-L7.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.10
+    DC3-L8:
+      kind: arista_ceos
+      startup-config: configs/DC3-L8.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.11
+    DC3-L9:
+      kind: arista_ceos
+      startup-config: configs/DC3-L9.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.12
+    DC3-L10:
+      kind: arista_ceos
+      startup-config: configs/DC3-L10.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.13
+    DC3-L11:
+      kind: arista_ceos
+      startup-config: configs/DC3-L11.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.14
+    DC3-L12:
+      kind: arista_ceos
+      startup-config: configs/DC3-L12.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.15
+    DC3-L13:
+      kind: arista_ceos
+      startup-config: configs/DC3-L13.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.16
+    DC3-L14:
+      kind: arista_ceos
+      startup-config: configs/DC3-L14.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.17
+    DC3-L15:
+      kind: arista_ceos
+      startup-config: configs/DC3-L15.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.18
+    DC3-L16:
+      kind: arista_ceos
+      startup-config: configs/DC3-L16.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.19
+    DC3-L17:
+      kind: arista_ceos
+      startup-config: configs/DC3-L17.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.20
+    DC3-L18:
+      kind: arista_ceos
+      startup-config: configs/DC3-L18.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.21
+    DC3-L19:
+      kind: arista_ceos
+      startup-config: configs/DC3-L19.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.22
+    DC3-L20:
+      kind: arista_ceos
+      startup-config: configs/DC3-L20.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.23
+    DC3-BL1:
+      kind: arista_ceos
+      startup-config: configs/DC3-BL1.cfg
+      binds:
+      - intf-mapping/DCS-7280DR3-24.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.24
+    DC3-BL2:
+      kind: arista_ceos
+      startup-config: configs/DC3-BL2.cfg
+      binds:
+      - intf-mapping/DCS-7280DR3-24.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.25
+    DC3-SL1:
+      kind: arista_ceos
+      startup-config: configs/DC3-SL1.cfg
+      binds:
+      - intf-mapping/DCS-7280DR3-24.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.26
+    DC3-SL2:
+      kind: arista_ceos
+      startup-config: configs/DC3-SL2.cfg
+      binds:
+      - intf-mapping/DCS-7280DR3-24.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.27
+    DC3-EDGE1:
+      kind: arista_ceos
+      startup-config: configs/DC3-EDGE1.cfg
+      binds:
+      - intf-mapping/DCS-7050DX4-32S.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.28
+    DC3-EDGE2:
+      kind: arista_ceos
+      startup-config: configs/DC3-EDGE2.cfg
+      binds:
+      - intf-mapping/DCS-7050DX4-32S.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.29
+    DC3-DMZ1:
+      kind: arista_ceos
+      startup-config: configs/DC3-DMZ1.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.30
+    DC3-DMZ2:
+      kind: arista_ceos
+      startup-config: configs/DC3-DMZ2.cfg
+      binds:
+      - intf-mapping/DCS-7050SX3-48YC8C.json:/mnt/flash/EosIntfMapping.json:ro
+      mgmt-ipv4: 10.250.32.31
+    DC3-INETFW1:
+      kind: linux
+      binds:
+      - configs/DC3-INETFW1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.32
+    DC3-INTFW1:
+      kind: linux
+      binds:
+      - configs/DC3-INTFW1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.33
+    DC3-SDWANFW1:
+      kind: linux
+      binds:
+      - configs/DC3-SDWANFW1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.34
+    DC3-VPNFW1:
+      kind: linux
+      binds:
+      - configs/DC3-VPNFW1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.35
+    DC3-ISP1:
+      kind: linux
+      binds:
+      - configs/DC3-ISP1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.36
+    DC3-ISP2:
+      kind: linux
+      binds:
+      - configs/DC3-ISP2.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.37
+    DC3-CLOUD1:
+      kind: linux
+      binds:
+      - configs/DC3-CLOUD1.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.38
+    DC3-CLOUD2:
+      kind: linux
+      binds:
+      - configs/DC3-CLOUD2.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+      mgmt-ipv4: 10.250.32.39
+    DC3-ISP-A:
+      kind: linux
+      mgmt-ipv4: 10.250.32.240
+      binds:
+      - configs/DC3-ISP1.carrier.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-ISP-B:
+      kind: linux
+      mgmt-ipv4: 10.250.32.241
+      binds:
+      - configs/DC3-ISP2.carrier.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-BR001:
+      kind: linux
+      mgmt-ipv4: 10.250.32.242
+      binds:
+      - configs/DC3-SDWANFW1.branch.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-BR002:
+      kind: linux
+      mgmt-ipv4: 10.250.32.243
+      binds:
+      - configs/DC3-SDWANFW1.branch.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-PARTNER01:
+      kind: linux
+      mgmt-ipv4: 10.250.32.244
+      binds:
+      - configs/DC3-VPNFW1.partner.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-HOST-PROD:
+      kind: linux
+      mgmt-ipv4: 10.250.32.245
+      exec:
+      - ip addr add 10.24.10.10/24 dev eth1
+      - ip link set eth1 up
+      - ip route replace default via 10.24.10.1 dev eth1
+    DC3-HOST-ISP-A:
+      kind: linux
+      mgmt-ipv4: 10.250.32.246
+      exec:
+      - ip addr add 198.18.1.10/24 dev eth1
+      - ip link set eth1 up
+      - ip route replace default via 198.18.1.1 dev eth1
+    DC3-HOST-ISP-B:
+      kind: linux
+      mgmt-ipv4: 10.250.32.247
+      exec:
+      - ip addr add 198.18.2.10/24 dev eth1
+      - ip link set eth1 up
+      - ip route replace default via 198.18.2.1 dev eth1
+    DC3-HOST-DEV:
+      kind: linux
+      mgmt-ipv4: 10.250.32.248
+      exec:
+      - ip addr add 10.24.74.10/24 dev eth1
+      - ip link set eth1 up
+      - ip route replace default via 10.24.74.1 dev eth1
+    DC3-HOST-CITRIX:
+      kind: linux
+      mgmt-ipv4: 10.250.32.249
+      exec:
+      - ip addr add 10.24.144.10/24 dev eth1
+      - ip link set eth1 up
+      - ip route replace default via 10.24.144.1 dev eth1
+    DC3-AWS:
+      kind: linux
+      mgmt-ipv4: 10.250.32.250
+      binds:
+      - configs/DC3.cloud-provider.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-AZURE:
+      kind: linux
+      mgmt-ipv4: 10.250.32.251
+      binds:
+      - configs/DC3.cloud-provider.sh:/frr-init.sh:ro
+      exec:
+      - sh /frr-init.sh
+    DC3-XC1:
+      kind: linux
+      mgmt-ipv4: 10.250.32.252
+      exec:
+      - ip link add br0 type bridge
+      - ip link set br0 up
+      - ip link set eth1 master br0
+      - ip link set eth2 master br0
+      - ip link set eth3 master br0
+      - ip link set eth1 up
+      - ip link set eth2 up
+      - ip link set eth3 up
+    DC3-XC2:
+      kind: linux
+      mgmt-ipv4: 10.250.32.253
+      exec:
+      - ip link add br0 type bridge
+      - ip link set br0 up
+      - ip link set eth1 master br0
+      - ip link set eth2 master br0
+      - ip link set eth3 master br0
+      - ip link set eth1 up
+      - ip link set eth2 up
+      - ip link set eth3 up
+  links:
+  - endpoints:
+    - DC3-S1:eth1
+    - DC3-L1:eth49
+  - endpoints:
+    - DC3-S1:eth2
+    - DC3-L1:eth50
+  - endpoints:
+    - DC3-S1:eth3
+    - DC3-L2:eth49
+  - endpoints:
+    - DC3-S1:eth4
+    - DC3-L2:eth50
+  - endpoints:
+    - DC3-S1:eth5
+    - DC3-L3:eth49
+  - endpoints:
+    - DC3-S1:eth6
+    - DC3-L3:eth50
+  - endpoints:
+    - DC3-S1:eth7
+    - DC3-L4:eth49
+  - endpoints:
+    - DC3-S1:eth8
+    - DC3-L4:eth50
+  - endpoints:
+    - DC3-S1:eth9
+    - DC3-L5:eth49
+  - endpoints:
+    - DC3-S1:eth10
+    - DC3-L5:eth50
+  - endpoints:
+    - DC3-S1:eth11
+    - DC3-L6:eth49
+  - endpoints:
+    - DC3-S1:eth12
+    - DC3-L6:eth50
+  - endpoints:
+    - DC3-S1:eth13
+    - DC3-L7:eth49
+  - endpoints:
+    - DC3-S1:eth14
+    - DC3-L7:eth50
+  - endpoints:
+    - DC3-S1:eth15
+    - DC3-L8:eth49
+  - endpoints:
+    - DC3-S1:eth16
+    - DC3-L8:eth50
+  - endpoints:
+    - DC3-S1:eth17
+    - DC3-L9:eth49
+  - endpoints:
+    - DC3-S1:eth18
+    - DC3-L9:eth50
+  - endpoints:
+    - DC3-S1:eth19
+    - DC3-L10:eth49
+  - endpoints:
+    - DC3-S1:eth20
+    - DC3-L10:eth50
+  - endpoints:
+    - DC3-S1:eth21
+    - DC3-L11:eth49
+  - endpoints:
+    - DC3-S1:eth22
+    - DC3-L11:eth50
+  - endpoints:
+    - DC3-S1:eth23
+    - DC3-L12:eth49
+  - endpoints:
+    - DC3-S1:eth24
+    - DC3-L12:eth50
+  - endpoints:
+    - DC3-S1:eth25
+    - DC3-L13:eth49
+  - endpoints:
+    - DC3-S1:eth26
+    - DC3-L13:eth50
+  - endpoints:
+    - DC3-S1:eth27
+    - DC3-L14:eth49
+  - endpoints:
+    - DC3-S1:eth28
+    - DC3-L14:eth50
+  - endpoints:
+    - DC3-S1:eth29
+    - DC3-L15:eth49
+  - endpoints:
+    - DC3-S1:eth30
+    - DC3-L15:eth50
+  - endpoints:
+    - DC3-S1:eth31
+    - DC3-L16:eth49
+  - endpoints:
+    - DC3-S1:eth32
+    - DC3-L16:eth50
+  - endpoints:
+    - DC3-S1:eth33
+    - DC3-L17:eth49
+  - endpoints:
+    - DC3-S1:eth34
+    - DC3-L17:eth50
+  - endpoints:
+    - DC3-S1:eth35
+    - DC3-L18:eth49
+  - endpoints:
+    - DC3-S1:eth36
+    - DC3-L18:eth50
+  - endpoints:
+    - DC3-S1:eth37
+    - DC3-L19:eth49
+  - endpoints:
+    - DC3-S1:eth38
+    - DC3-L19:eth50
+  - endpoints:
+    - DC3-S1:eth39
+    - DC3-L20:eth49
+  - endpoints:
+    - DC3-S1:eth40
+    - DC3-L20:eth50
+  - endpoints:
+    - DC3-S1:eth41
+    - DC3-BL1:eth1
+  - endpoints:
+    - DC3-S1:eth42
+    - DC3-BL2:eth1
+  - endpoints:
+    - DC3-S1:eth43
+    - DC3-SL1:eth1
+  - endpoints:
+    - DC3-S1:eth44
+    - DC3-SL2:eth1
+  - endpoints:
+    - DC3-S2:eth1
+    - DC3-L1:eth51
+  - endpoints:
+    - DC3-S2:eth2
+    - DC3-L1:eth52
+  - endpoints:
+    - DC3-S2:eth3
+    - DC3-L2:eth51
+  - endpoints:
+    - DC3-S2:eth4
+    - DC3-L2:eth52
+  - endpoints:
+    - DC3-S2:eth5
+    - DC3-L3:eth51
+  - endpoints:
+    - DC3-S2:eth6
+    - DC3-L3:eth52
+  - endpoints:
+    - DC3-S2:eth7
+    - DC3-L4:eth51
+  - endpoints:
+    - DC3-S2:eth8
+    - DC3-L4:eth52
+  - endpoints:
+    - DC3-S2:eth9
+    - DC3-L5:eth51
+  - endpoints:
+    - DC3-S2:eth10
+    - DC3-L5:eth52
+  - endpoints:
+    - DC3-S2:eth11
+    - DC3-L6:eth51
+  - endpoints:
+    - DC3-S2:eth12
+    - DC3-L6:eth52
+  - endpoints:
+    - DC3-S2:eth13
+    - DC3-L7:eth51
+  - endpoints:
+    - DC3-S2:eth14
+    - DC3-L7:eth52
+  - endpoints:
+    - DC3-S2:eth15
+    - DC3-L8:eth51
+  - endpoints:
+    - DC3-S2:eth16
+    - DC3-L8:eth52
+  - endpoints:
+    - DC3-S2:eth17
+    - DC3-L9:eth51
+  - endpoints:
+    - DC3-S2:eth18
+    - DC3-L9:eth52
+  - endpoints:
+    - DC3-S2:eth19
+    - DC3-L10:eth51
+  - endpoints:
+    - DC3-S2:eth20
+    - DC3-L10:eth52
+  - endpoints:
+    - DC3-S2:eth21
+    - DC3-L11:eth51
+  - endpoints:
+    - DC3-S2:eth22
+    - DC3-L11:eth52
+  - endpoints:
+    - DC3-S2:eth23
+    - DC3-L12:eth51
+  - endpoints:
+    - DC3-S2:eth24
+    - DC3-L12:eth52
+  - endpoints:
+    - DC3-S2:eth25
+    - DC3-L13:eth51
+  - endpoints:
+    - DC3-S2:eth26
+    - DC3-L13:eth52
+  - endpoints:
+    - DC3-S2:eth27
+    - DC3-L14:eth51
+  - endpoints:
+    - DC3-S2:eth28
+    - DC3-L14:eth52
+  - endpoints:
+    - DC3-S2:eth29
+    - DC3-L15:eth51
+  - endpoints:
+    - DC3-S2:eth30
+    - DC3-L15:eth52
+  - endpoints:
+    - DC3-S2:eth31
+    - DC3-L16:eth51
+  - endpoints:
+    - DC3-S2:eth32
+    - DC3-L16:eth52
+  - endpoints:
+    - DC3-S2:eth33
+    - DC3-L17:eth51
+  - endpoints:
+    - DC3-S2:eth34
+    - DC3-L17:eth52
+  - endpoints:
+    - DC3-S2:eth35
+    - DC3-L18:eth51
+  - endpoints:
+    - DC3-S2:eth36
+    - DC3-L18:eth52
+  - endpoints:
+    - DC3-S2:eth37
+    - DC3-L19:eth51
+  - endpoints:
+    - DC3-S2:eth38
+    - DC3-L19:eth52
+  - endpoints:
+    - DC3-S2:eth39
+    - DC3-L20:eth51
+  - endpoints:
+    - DC3-S2:eth40
+    - DC3-L20:eth52
+  - endpoints:
+    - DC3-S2:eth41
+    - DC3-BL1:eth2
+  - endpoints:
+    - DC3-S2:eth42
+    - DC3-BL2:eth2
+  - endpoints:
+    - DC3-S2:eth43
+    - DC3-SL1:eth2
+  - endpoints:
+    - DC3-S2:eth44
+    - DC3-SL2:eth2
+  - endpoints:
+    - DC3-L1:eth53
+    - DC3-L2:eth53
+  - endpoints:
+    - DC3-L1:eth54
+    - DC3-L2:eth54
+  - endpoints:
+    - DC3-L1:eth48
+    - DC3-L2:eth48
+  - endpoints:
+    - DC3-BL1:eth3
+    - DC3-BL2:eth3
+  - endpoints:
+    - DC3-BL1:eth4
+    - DC3-BL2:eth4
+  - endpoints:
+    - DC3-BL1:eth5
+    - DC3-BL2:eth5
+  - endpoints:
+    - DC3-BL1:eth6
+    - DC3-BL2:eth6
+  - endpoints:
+    - DC3-BL1:eth24
+    - DC3-BL2:eth24
+  - endpoints:
+    - DC3-SL1:eth3
+    - DC3-SL2:eth3
+  - endpoints:
+    - DC3-SL1:eth4
+    - DC3-SL2:eth4
+  - endpoints:
+    - DC3-SL1:eth5
+    - DC3-SL2:eth5
+  - endpoints:
+    - DC3-SL1:eth6
+    - DC3-SL2:eth6
+  - endpoints:
+    - DC3-SL1:eth24
+    - DC3-SL2:eth24
+  - endpoints:
+    - DC3-EDGE1:eth1
+    - DC3-EDGE2:eth1
+  - endpoints:
+    - DC3-EDGE1:eth2
+    - DC3-EDGE2:eth2
+  - endpoints:
+    - DC3-EDGE1:eth3
+    - DC3-EDGE2:eth3
+  - endpoints:
+    - DC3-EDGE1:eth4
+    - DC3-EDGE2:eth4
+  - endpoints:
+    - DC3-EDGE1:eth34
+    - DC3-EDGE2:eth34
+  - endpoints:
+    - DC3-DMZ1:eth53
+    - DC3-DMZ2:eth53
+  - endpoints:
+    - DC3-DMZ1:eth54
+    - DC3-DMZ2:eth54
+  - endpoints:
+    - DC3-DMZ1:eth48
+    - DC3-DMZ2:eth48
+  - endpoints:
+    - DC3-BL1:eth7
+    - DC3-INETFW1:port19
+  - endpoints:
+    - DC3-BL1:eth9
+    - DC3-SDWANFW1:port37
+  - endpoints:
+    - DC3-BL1:eth11
+    - DC3-VPNFW1:port37
+  - endpoints:
+    - DC3-BL1:eth13
+    - DC3-CLOUD1:Gi0-0-0-0
+  - endpoints:
+    - DC3-BL1:eth14
+    - DC3-CLOUD2:Gi0-0-0-0
+  - endpoints:
+    - DC3-BL2:eth7
+    - DC3-INETFW1:port20
+  - endpoints:
+    - DC3-BL2:eth9
+    - DC3-SDWANFW1:port38
+  - endpoints:
+    - DC3-BL2:eth11
+    - DC3-VPNFW1:port38
+  - endpoints:
+    - DC3-BL2:eth13
+    - DC3-CLOUD1:Gi0-0-0-1
+  - endpoints:
+    - DC3-BL2:eth14
+    - DC3-CLOUD2:Gi0-0-0-1
+  - endpoints:
+    - DC3-SL1:eth7
+    - DC3-INTFW1:port19
+  - endpoints:
+    - DC3-SL2:eth7
+    - DC3-INTFW1:port20
+  - endpoints:
+    - DC3-EDGE1:eth5
+    - DC3-ISP1:Gi0-0-0-0
+  - endpoints:
+    - DC3-EDGE1:eth6
+    - DC3-ISP2:Gi0-0-0-0
+  - endpoints:
+    - DC3-EDGE1:eth7
+    - DC3-INETFW1:port21
+  - endpoints:
+    - DC3-EDGE1:eth9
+    - DC3-SDWANFW1:port39
+  - endpoints:
+    - DC3-EDGE1:eth11
+    - DC3-VPNFW1:port39
+  - endpoints:
+    - DC3-EDGE2:eth5
+    - DC3-ISP1:Gi0-0-0-1
+  - endpoints:
+    - DC3-EDGE2:eth6
+    - DC3-ISP2:Gi0-0-0-1
+  - endpoints:
+    - DC3-EDGE2:eth7
+    - DC3-INETFW1:port22
+  - endpoints:
+    - DC3-EDGE2:eth9
+    - DC3-SDWANFW1:port40
+  - endpoints:
+    - DC3-EDGE2:eth11
+    - DC3-VPNFW1:port40
+  - endpoints:
+    - DC3-DMZ1:eth49
+    - DC3-INETFW1:port15
+  - endpoints:
+    - DC3-DMZ2:eth49
+    - DC3-INETFW1:port16
+  - endpoints:
+    - DC3-ISP1:Gi0-0-0-2
+    - DC3-ISP2:Gi0-0-0-2
+  - endpoints:
+    - DC3-CLOUD1:Gi0-0-0-2
+    - DC3-CLOUD2:Gi0-0-0-2
+  - endpoints:
+    - DC3-ISP1:Gi0-0-0-3
+    - DC3-ISP-A:isp
+  - endpoints:
+    - DC3-ISP-A:host
+    - DC3-HOST-ISP-A:eth1
+  - endpoints:
+    - DC3-ISP2:Gi0-0-0-3
+    - DC3-ISP-B:isp
+  - endpoints:
+    - DC3-ISP-B:host
+    - DC3-HOST-ISP-B:eth1
+  - endpoints:
+    - DC3-SDWANFW1:BR001
+    - DC3-BR001:eth1
+  - endpoints:
+    - DC3-SDWANFW1:BR002
+    - DC3-BR002:eth1
+  - endpoints:
+    - DC3-VPNFW1:PARTNER01
+    - DC3-PARTNER01:eth1
+  - endpoints:
+    - DC3-CLOUD1:Hu0-0-0-16
+    - DC3-XC1:eth1
+  - endpoints:
+    - DC3-AWS:eth1
+    - DC3-XC1:eth2
+  - endpoints:
+    - DC3-AZURE:eth1
+    - DC3-XC1:eth3
+  - endpoints:
+    - DC3-CLOUD2:Hu0-0-0-16
+    - DC3-XC2:eth1
+  - endpoints:
+    - DC3-AWS:eth2
+    - DC3-XC2:eth2
+  - endpoints:
+    - DC3-AZURE:eth2
+    - DC3-XC2:eth3
+  - endpoints:
+    - DC3-L11:eth1
+    - DC3-HOST-PROD:eth1
+  - endpoints:
+    - DC3-L11:eth2
+    - DC3-HOST-DEV:eth1
+  - endpoints:
+    - DC3-L11:eth3
+    - DC3-HOST-CITRIX:eth1

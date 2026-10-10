@@ -1,0 +1,6 @@
+# infrahubctl settings for the standalone DC3 instance. Copy to infrahubctl.toml (git-ignored) and fill in the token.
+# infrahubctl reads ./infrahubctl.toml (or the file named by INFRAHUBCTL_CONFIG); the environment variables
+# INFRAHUB_ADDRESS and INFRAHUB_API_TOKEN work as well (scripts/bootstrap.sh uses those).
+# Keys: docs.infrahub.app/infrahubctl/infrahubctl (server_address, api_token).
+server_address = "http://localhost:8000"
+api_token = "CHANGE_ME"

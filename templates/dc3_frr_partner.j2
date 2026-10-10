@@ -1,0 +1,35 @@
+{# DC3 partner stand-in, rendered from the VPN-partner FW's data (artifact per FW): one POSIX shell script for
+   every partner with a translated /28 in this site; each partner node runs the same file and picks its part by hostname.
+   Partner side of the lab tunnel stand-in: eth1 = FabricPartner.peer_ip on the /31 toward the FW (the FW side is the other
+   address), the protected networks on a dummy interface `lan` (first host), default route toward the FW. Static routing
+   only (no BGP to partners). #}
+{% set lan_gw_host = 1 -%}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set fw = device.name.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set p_ns = namespace(items=[]) -%}
+{% for p in data.FabricPartner.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for t in p.translated_prefixes.edges | map(attribute="node") | list %}{% if t.site.node is not none and t.site.node.name.value == site_name %}{% set p_ns.items = p_ns.items + [(p.name.value, p.peer_ip.value.split("/")[0], p.protected_prefixes.value | sort, t.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% macro shift(ip, n) %}{% set o = ip.split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+{% macro other31(ip) %}{% set o = ip.split(".") %}{% set last = o[3] | int %}{{ o[:3] | join(".") }}.{{ last + 1 if last % 2 == 0 else last - 1 }}{% endmacro -%}
+#!/bin/sh
+# Partner stand-ins behind {{ fw }} ({{ site_name }}): {{ p_ns.items | map(attribute="0") | join(", ") }}. Rendered by Infrahub, do not edit.
+set -eu
+case "$(hostname)" in
+{% for pname, peer, protected, nat in p_ns.items %}
+{{ site_name }}-{{ pname }})
+ip link set eth1 up
+ip addr replace {{ peer }}/31 dev eth1
+ip link add lan type dummy 2>/dev/null || true
+{% for p in protected %}
+ip addr replace {{ shift(p.split("/")[0], lan_gw_host) }}/{{ p.split("/")[1] }} dev lan
+{% endfor %}
+ip link set lan up
+ip route replace default via {{ other31(peer) }} dev eth1
+echo "{{ site_name }}-{{ pname }} stand-in ready (sources {{ protected | join(" ") }}, seen by the fabric as {{ nat }})"
+;;
+{% endfor %}
+*)
+echo "$(hostname): not a partner of {{ fw }}" >&2
+exit 1
+;;
+esac

@@ -1,0 +1,11 @@
+mlag configuration
+   domain-id DC3-MLAG-L1-L2
+   local-interface Vlan3900
+   peer-address 10.27.3.1
+   peer-address heartbeat 10.27.17.1 vrf VPC-KEEPALIVE
+   peer-link Port-Channel1000
+   dual-primary detection delay 5 action errdisable all-interfaces
+   dual-primary recovery delay mlag 360 non-mlag 300
+   reload-delay mlag 360
+   reload-delay non-mlag 360
+!

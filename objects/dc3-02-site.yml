@@ -1,0 +1,17 @@
+---
+# DC3 site. Load after dc3-00-groups.yml and dc3-01-bootstrap.yml (metro Ashburn); DC3 instance: main;
+# an Infrahub instance that also holds other sites: a branch (for example dc3) only.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: LocationSite
+  data:
+    - name: DC3
+      shortname: VA02
+      description: Standalone Arista datacenter (lab)
+      parent: Ashburn
+      vpc_leaf_pairs: 1
+      esi_leaf_pairs: 4
+      single_leaves: 10
+      member_of_groups:
+        - dc3-sites

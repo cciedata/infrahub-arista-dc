@@ -1,0 +1,24 @@
+{
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": ["br-dc3-ztp"],
+      "dhcp-socket-type": "raw",
+      "service-sockets-max-retries": 200,
+      "service-sockets-retry-wait-time": 3000
+    },
+    "lease-database": {"type": "memfile", "persist": false},
+    "valid-lifetime": 3600,
+    "subnet4": [
+      {
+        "id": 1,
+        "subnet": "10.250.32.0/24",
+        "pools": [{"pool": "10.250.32.200 - 10.250.32.239"}],
+        "option-data": [
+          {"name": "routers", "data": "10.250.32.1"},
+          {"name": "boot-file-name", "data": "http://10.250.32.1:8080/bootstrap"}
+        ]
+      }
+    ],
+    "loggers": [{"name": "kea-dhcp4", "output-options": [{"output": "stdout"}], "severity": "INFO"}]
+  }
+}

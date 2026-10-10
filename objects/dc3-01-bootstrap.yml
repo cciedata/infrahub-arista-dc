@@ -1,0 +1,119 @@
+---
+# DC3 bootstrap: the shared objects DC3 references (location, metro, providers, shared ASNs, shared prefixes) that an
+# empty Infrahub needs before the DC3 files load.
+# EMPTY INSTANCE ONLY: load into an empty DC3 instance (scripts/bootstrap.sh, main branch). Never load this file on an
+# Infrahub instance that also holds other sites: there these objects already exist on main with more relationships
+# (for example the metro list of the country), and a load could replace them on the branch.
+# Load order: after dc3-00-groups.yml, before dc3-02-site.yml (the site's parent is the metro below).
+#
+# 1. Location: country United States with its metro Ashburn, the parent of site DC3.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: LocationCountry
+  data:
+    - name: United States
+      shortname: US
+      description: US operations
+      children:
+        kind: LocationMetro
+        data:
+          - name: Ashburn
+            shortname: ASH
+            description: Virginia
+---
+# 2. Providers: carriers of the ISP router stand-ins and the two clouds. The templates find a
+#    provider's ASN by these names (dc3_frr_isp_router.j2, dc3_frr_carrier.j2, dc3_frr_cloud_router.j2,
+#    dc3_frr_cloud_provider.j2), and the generator writes the names into the handoff descriptions (dc3_plan.CARRIER,
+#    CLOUD_PROVIDER).
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: OrganizationProvider
+  data:
+    - name: ISP-A
+      description: Carrier A; peers with DC3-ISP1
+    - name: ISP-B
+      description: Carrier B; peers with DC3-ISP2
+    - name: AWS
+      description: AWS Direct Connect, private VIFs to a Direct Connect Gateway; peers with the cloud routers
+    - name: Microsoft
+      description: Azure ExpressRoute private peering; peers with the cloud routers
+---
+# 3. Shared autonomous systems: ISP routers, carriers, SD-WAN overlay,
+# AWS and Microsoft. DC3's own ASNs are in dc3-05-asns.yml.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricAutonomousSystem
+  data:
+    - asn: 65050
+      description: ISP routers (shared)
+    - asn: 64496
+      description: ISP-A (documentation ASN)
+      provider: ISP-A
+    - asn: 64497
+      description: ISP-B (documentation ASN)
+      provider: ISP-B
+    - asn: 65500
+      description: AWS Direct Connect Gateway (Amazon side)
+      provider: AWS
+    - asn: 12076
+      description: Microsoft (Azure ExpressRoute)
+      provider: Microsoft
+    - asn: 65400
+      description: SD-WAN overlay (hubs and branches)
+---
+# 4. Shared prefixes. No site set (shared): a site on them would
+#    change DC3's owned_prefixes, which the stand-in templates read. Why DC3 needs each one:
+#    10.0.0.0/16     shared infrastructure; the cloud router guardrail in dc3_frr_cloud_router.j2 names it
+#    10.64.0.0/12    branch block: parent of the branch LANs; aggregate of the SD-WAN hub stand-in
+#    10.64.1.0/24, 10.64.2.0/24   lan_prefix of the sample branches BR001 / BR002 (dc3-08-standins.yml)
+#    10.98.0.0/24    cloud handoffs: parent of the DC3 ExpressRoute /30s (dc3-03-ip-plan.yml)
+#    10.250.0.0/16   OOB management: parent of 10.250.32.0/20 (dc3-03-ip-plan.yml)
+#    172.16.0.0/13, 172.30.0.0/15   AWS and Azure blocks (cloud provider stand-ins)
+#    192.0.2.0/24    carrier handoffs: parent of the carrier /30s the generator writes
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamPrefix
+  data:
+    - prefix: 10.0.0.0/16
+      description: Shared infrastructure (belongs to no single site)
+      status: active
+      member_type: prefix
+    - prefix: 10.64.0.0/12
+      description: Branches (SD-WAN)
+      status: active
+      member_type: prefix
+    - prefix: 10.98.0.0/24
+      description: Cloud handoffs (ExpressRoute /30s)
+      status: active
+      member_type: prefix
+      role: link
+    - prefix: 10.250.0.0/16
+      description: OOB management
+      status: active
+      member_type: prefix
+      role: management
+    - prefix: 172.16.0.0/13
+      description: AWS
+      status: active
+      member_type: prefix
+    - prefix: 172.30.0.0/15
+      description: Azure
+      status: active
+      member_type: prefix
+    - prefix: 192.0.2.0/24
+      description: Carrier handoff /30s (documentation range)
+      status: active
+      member_type: prefix
+      role: link
+    - prefix: 10.64.1.0/24
+      description: BR001 LAN (SD-WAN branch 1)
+      status: active
+      member_type: address
+    - prefix: 10.64.2.0/24
+      description: BR002 LAN (SD-WAN branch 2)
+      status: active
+      member_type: address

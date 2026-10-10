@@ -1,0 +1,28 @@
+# DC3 AWS and Azure stand-ins (FRR), one artifact per site: the cloud routers' exchange handoffs
+# (role cloud_handoff, description starting with the provider name) and the providers' ASNs.
+query Dc3FrrCloudProvider($site: String!) {
+  LocationSite(name__value: $site) {
+    edges { node { name { value } } }
+  }
+  CloudRouters: DcimDevice(location__name__value: $site, role__value: "cloud_router") {
+    edges {
+      node {
+        name { value }
+        asn { node { asn { value } } }
+        interfaces(role__value: "cloud_handoff") {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              ... on InterfaceLayer3 { ip_addresses { edges { node { address { value } } } } }
+            }
+          }
+        }
+      }
+    }
+  }
+  ProviderAsns: FabricAutonomousSystem {
+    edges { node { asn { value } provider { node { name { value } } } } }
+  }
+}

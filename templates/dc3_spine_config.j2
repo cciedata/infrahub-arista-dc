@@ -1,0 +1,135 @@
+{# DC3 spine (Arista EOS 4.36.2F) startup-config, fabric core.
+   eBGP underlay on the /31 links to every leaf, eBGP EVPN overlay to every leaf Loopback0 with
+   next-hop-unchanged. Peers come from the spine's own core links (other /31 address description).
+   Lines whose EOS syntax is not verified carry a Jinja comment that says what to check. #}
+{# Decided constants: one place to change them (plans/dc3-values.md) #}
+{% set mgmt_vrf = "MGMT" -%}
+{% set bfd_timers = "interval 999 min-rx 999 multiplier 3" -%}
+{% set pg_underlay = "IPV4-UNDERLAY-PEERS" -%}
+{% set pg_overlay = "EVPN-OVERLAY-PEERS" -%}
+{% set ebgp_multihop = 3 -%}
+{% set route_map = "RM-CONN-2-BGP" -%}
+{% set prefix_list = "PL-LOOPBACKS" -%}
+{% set pl_pools = ["LOOPBACK0", "LOOPBACK1-VTEP", "ANYCAST-VTEP"] -%}  {#- anycast VTEP pool in the list; same list on every device -#}
+{% set pl_seq_step = 10 -%}                                    {#- prefix-list seq 10, 20, 30 -#}
+{% set rm_seq = 10 -%}                                         {#- route-map sequence 10 -#}
+{% macro peer31(cidr) %}{% set o = cidr.split("/")[0].split(".") %}{% set last = o[3] | int %}{{ o[:3] | join(".") }}.{{ last + 1 if last % 2 == 0 else last - 1 }}{% endmacro -%}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set physical = interfaces | selectattr("__typename", "equalto", "InterfacePhysical") | list -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set lo0 = virtual | selectattr("name.value", "equalto", "Loopback0") | list | first -%}
+{% set mgmt = physical | selectattr("role.value", "equalto", "management") | list | first -%}
+{% set core_all = physical | selectattr("role.value", "equalto", "core") | list -%}
+{% set core_names = core_all | map(attribute="name.value") | list | sort_interface_list -%}
+{# Device name -> (name, ASN, Loopback0 IP), from FabricAutonomousSystem.devices #}
+{% set as_ns = namespace(rows=[]) -%}
+{% for a in data.FabricAutonomousSystem.edges | map(attribute="node") %}{% for d in a.devices.edges | map(attribute="node") %}{% set los = d.interfaces.edges | map(attribute="node") | selectattr("name.value", "equalto", "Loopback0") | list %}{% set as_ns.rows = as_ns.rows + [(d.name.value, a.asn.value, (los[0].ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") | string) if los and los[0].ip_addresses.edges else none)] %}{% endfor %}{% endfor -%}
+{# Underlay neighbors: other address of each core /31; leaf = first word of the description; leaf ASN from its AS #}
+{% set ul_ns = namespace(rows=[], leaves=[]) -%}
+{% for name in core_names %}{% set intf = core_all | selectattr("name.value", "equalto", name) | list | first %}{% set peer_name = intf.description.value.split(" ")[0] %}{% set row = as_ns.rows | selectattr("0", "equalto", peer_name) | list | first %}{% set ul_ns.rows = ul_ns.rows + [(peer31(intf.ip_addresses.edges[0].node.address.value), row[1], peer_name)] %}{% if peer_name not in ul_ns.leaves %}{% set ul_ns.leaves = ul_ns.leaves + [peer_name] %}{% endif %}{% endfor -%}
+{# Overlay neighbors: Loopback0 of every leaf this spine has a link to, in port order #}
+{% set ov_ns = namespace(rows=[]) -%}
+{% for l in ul_ns.leaves %}{% set ov_ns.rows = ov_ns.rows + [as_ns.rows | selectattr("0", "equalto", l) | list | first] %}{% endfor -%}
+{# Prefix-list entries: the source prefixes of the DC3 loopback / VTEP pools #}
+{% set pl_ns = namespace(items=[]) -%}
+{% for suffix in pl_pools %}{% set pool = data.CoreIPAddressPool.edges | map(attribute="node") | selectattr("name.value", "equalto", site_name ~ "-" ~ suffix) | list | first %}{% for r in pool.resources.edges %}{% set pl_ns.items = pl_ns.items + [r.node.prefix.value] %}{% endfor %}{% endfor -%}
+{# Values derived by rule #}
+{% set lo0_addr = lo0.ip_addresses.edges[0].node.address.value -%}
+{% set router_id = lo0_addr | ipaddress_interface("ip") -%}
+{% set mgmt_addr = mgmt.ip_addresses.edges[0].node.address.value -%}
+{% set mgmt_gw = mgmt_addr | ipaddress_interface("network") | string | get_first_usable -%}
+hostname {{ device.name.value }}
+!
+service routing protocols model multi-agent
+!
+{# local AAA: eAPI user, secret filled at delivery time (lab/dc3_secrets.py) privilege 15 #}
+aaa authentication login default local
+aaa authorization exec default local
+!
+username dc3-automation privilege 15 role network-admin secret sha512 __DC3_AUTOMATION_HASH__
+!
+vrf instance {{ mgmt_vrf }}
+!
+{% for name in core_names %}{% set intf = core_all | selectattr("name.value", "equalto", name) | list | first %}
+interface {{ intf.name.value }}
+   description {{ intf.description.value }}
+{# EthernetN/1 names on QSFP-DD ports, confirmed in the lab smoke test #}
+   no shutdown
+   mtu {{ intf.mtu.value }}
+   no switchport
+   ip address {{ intf.ip_addresses.edges[0].node.address.value }}
+   bfd {{ bfd_timers }}
+!
+{% endfor %}
+interface {{ lo0.name.value }}
+   description {{ lo0.description.value }}
+   ip address {{ lo0_addr }}
+!
+interface {{ mgmt.name.value }}
+   description {{ mgmt.description.value }}
+   vrf {{ mgmt_vrf }}
+   ip address {{ mgmt_addr }}
+!
+ip routing
+{# AVD form #}
+no ip routing vrf {{ mgmt_vrf }}
+!
+ip prefix-list {{ prefix_list }}
+{% for p in pl_ns.items %}
+   seq {{ loop.index * pl_seq_step }} permit {{ p }} eq 32
+{% endfor %}
+!
+ip route vrf {{ mgmt_vrf }} 0.0.0.0/0 {{ mgmt_gw }}
+!
+route-map {{ route_map }} permit {{ rm_seq }}
+   match ip address prefix-list {{ prefix_list }}
+!
+{# router bfd multihop syntax: AVD form, not in the manual pages read #}
+router bfd
+   multihop {{ bfd_timers }}
+!
+router bgp {{ asn }}
+   router-id {{ router_id }}
+{# not found in the manual pages read (AVD form) #}
+   no bgp default ipv4-unicast
+{# graceful-restart helper only; EOS syntax until the smoke test #}
+   graceful-restart-helper
+{# on the spines too; check: maximum-paths / ecmp ranges #}
+   maximum-paths 4 ecmp 4
+   neighbor {{ pg_underlay }} peer group
+   neighbor {{ pg_underlay }} bfd
+   neighbor {{ pg_overlay }} peer group
+   neighbor {{ pg_overlay }} next-hop-unchanged
+   neighbor {{ pg_overlay }} update-source {{ lo0.name.value }}
+   neighbor {{ pg_overlay }} bfd
+   neighbor {{ pg_overlay }} ebgp-multihop {{ ebgp_multihop }}
+   neighbor {{ pg_overlay }} send-community
+{% for ip, peer_asn, peer_name in ul_ns.rows %}
+   neighbor {{ ip }} peer group {{ pg_underlay }}
+   neighbor {{ ip }} remote-as {{ peer_asn }}
+{% endfor %}
+{% for row in ov_ns.rows %}
+   neighbor {{ row[2] }} peer group {{ pg_overlay }}
+   neighbor {{ row[2] }} remote-as {{ row[1] }}
+{% endfor %}
+   redistribute connected route-map {{ route_map }}
+   !
+   address-family evpn
+      neighbor {{ pg_overlay }} activate
+   !
+   address-family ipv4
+      neighbor {{ pg_underlay }} activate
+!
+{# eAPI over HTTPS in VRF MGMT; login: user dc3-automation, local AAA #}
+management api http-commands
+   protocol https
+   no shutdown
+   !
+   vrf {{ mgmt_vrf }}
+      no shutdown
+!
+end

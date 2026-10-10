@@ -1,0 +1,22 @@
+[project]
+name = "infrahub-arista-dc"
+version = "0.1.0"
+description = "Standalone Arista DC3 built with Infrahub: schema copy, objects, generator, EOS / FRR templates, lab"
+readme = "README.md"
+requires-python = ">=3.11, <3.14"
+# infrahub-sdk 1.23.2 (pinned). The ctl extra brings infrahubctl and Jinja2 / PyYAML;
+# netutils (template filters) is a core dependency of the SDK (infrahub-sdk-python v1.23.2 pyproject.toml).
+dependencies = [
+    "infrahub-sdk[ctl]==1.23.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 150

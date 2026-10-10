@@ -1,0 +1,72 @@
+{# DC3 AWS and Azure stand-ins (FRR 10.6.0), one artifact per site (target: the site), rendered from the
+   cloud routers' exchange handoffs. Each provider node runs the same file and picks its part by hostname
+   (<site>-AWS, <site>-AZURE). The provider side of every handoff: VLAN sub-interface eth<n>.<vlan> (eth<n> = the link to
+   the exchange stand-in of cloud router n), the provider address of the /30 (AWS .1, Microsoft .2),
+   eBGP to the cloud router with BFD 300 x 3, origination of the provider's block (blackhole + network):
+   AWS 172.16.0.0/13, Azure 172.30.0.0/15. No MD5. #}
+{% set providers = [("AWS", "AWS", "172.16.0.0/13", 1), ("Microsoft", "AZURE", "172.30.0.0/15", 2)] -%}   {#- (provider, node suffix, block, host) -#}
+{% set bfd_interval = 300 -%}{% set bfd_mult = 3 -%}{% set bfd_profile = "CLOUD-BFD" -%}
+{% set site_name = data.LocationSite.edges[0].node.name.value -%}
+{% set routers = data.CloudRouters.edges | map(attribute="node") | list | sort(attribute="name.value") -%}
+{% macro host(addr, h) %}{% set o = (addr | ipaddress_interface("network") | string).split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + h }}{% endmacro -%}
+#!/bin/sh
+# Cloud provider stand-ins for {{ site_name }}: {{ providers | map(attribute="1") | map("string") | join(", ") }}. Rendered by Infrahub, do not edit.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+case "$(hostname)" in
+{% for provider, suffix, block, my_host in providers %}
+{% set pa = data.ProviderAsns.edges | map(attribute="node") | selectattr("provider.node", "ne", none) | selectattr("provider.node.name.value", "equalto", provider) | list | first %}
+{% set ho_ns = namespace(items=[]) %}
+{% for r in routers %}{% for h in r.interfaces.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% if h.description.value.startswith(provider ~ " ") %}{% set ho_ns.items = ho_ns.items + [(loop.index0, r, h)] %}{% endif %}{% endfor %}{% endfor %}
+{{ site_name }}-{{ suffix }})
+{% for r in routers %}
+{% set n = loop.index %}
+{% for _i, rr, h in ho_ns.items if rr.name.value == r.name.value %}
+{% set addr = h.ip_addresses.edges[0].node.address.value %}
+ip link set eth{{ n }} up
+ip link add link eth{{ n }} name eth{{ n }}.{{ h.name.value.split(".")[1] }} type vlan id {{ h.name.value.split(".")[1] }} 2>/dev/null || true
+ip addr replace {{ host(addr, my_host) }}/{{ addr.split("/")[1] }} dev eth{{ n }}.{{ h.name.value.split(".")[1] }}
+ip link set eth{{ n }}.{{ h.name.value.split(".")[1] }} up
+{% endfor %}
+{% endfor %}
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ site_name }}-{{ suffix }}
+service integrated-vtysh-config
+!
+ip route {{ block }} blackhole
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_interval }}
+  receive-interval {{ bfd_interval }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+router bgp {{ pa.asn.value }}
+ bgp router-id {{ host((ho_ns.items | first)[2].ip_addresses.edges[0].node.address.value, my_host) }}
+ no bgp ebgp-requires-policy
+{% for _i, r, h in ho_ns.items %}
+{% set addr = h.ip_addresses.edges[0].node.address.value %}
+ neighbor {{ addr | ipaddress_interface("ip") }} remote-as {{ r.asn.node.asn.value }}
+ neighbor {{ addr | ipaddress_interface("ip") }} description {{ r.name.value }} {{ h.name.value }}
+ neighbor {{ addr | ipaddress_interface("ip") }} bfd profile {{ bfd_profile }}
+{% endfor %}
+ address-family ipv4 unicast
+  network {{ block }}
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ site_name }}-{{ suffix }} stand-in ready"
+;;
+{% endfor %}
+*)
+echo "$(hostname): not a cloud provider stand-in of {{ site_name }}" >&2
+exit 1
+;;
+esac

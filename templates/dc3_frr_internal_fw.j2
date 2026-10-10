@@ -1,0 +1,148 @@
+{# DC3 Internal FW stand-in (FRR 10.6.0 in a Linux container), one POSIX shell script run by
+   containerlab `exec` (lab/dc3.clab.yml): kernel VRF per FortiOS VRF id, LACP aggregate, VLAN sub-interfaces, per-VRF eBGP to
+   the service leaves with BFD 999 x 3, tenant <-> TRANSIT leaking with `import vrf` (tenant summaries into TRANSIT, 0/0 into
+   the tenant VRFs).
+   Every route the FW sends to a leaf carries only the FW AS. FortiOS writes
+   `set-aspath-action replace` + `set-aspath <FW AS>` on RM-<tenant>-TO-LEAF and RM-TRANSIT-TO-LEAF; the FRR stand-in mirrors
+   it with `set as-path exclude all` on the same route-maps (tested in an FRR lab). No as-override,
+   no allowas-in. DC3 is not a standby site, so no AS-path prepend is rendered. #}
+{# Constants: FortiOS VRF ids, table base, profile and bond names, host .3 #}
+{% set vrf_id = {"TRANSIT": 1, "PROD": 10, "DEV": 11, "CITRIX": 15, "PARTNER": 16} -%}   {#- FortiOS VRF id per VRF ( VRFs) -#}
+{% set transit_vrf = "TRANSIT" -%}
+{% set bfd_tx = 999 -%}{% set bfd_rx = 999 -%}{% set bfd_mult = 3 -%}
+{% set seq_step = 10 -%}
+{% set table_base = 1000 -%}                     {#- kernel table = base + VRF id -#}
+{% set bfd_profile = "FW-BFD" -%}                {#- BFD profile name -#}
+{% set bond_mode = "802.3ad" -%}                 {#- LACP bond mode -#}
+{% set aspath_set = "set as-path exclude all" -%}   {#- mirrors FortiOS set-aspath-action replace -#}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site = device.location.node -%}
+{% set site_name = site.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set aggs = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | sort(attribute="name.value") -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set attachments = data.FabricAttachment.edges | map(attribute="node") | list | sort(attribute="vlan_id.value") -%}
+{% set tenants = attachments | rejectattr("vrf.node.name.value", "equalto", transit_vrf) | list | sort(attribute="vrf.node.name.value") -%}
+{% set transit_att = attachments | selectattr("vrf.node.name.value", "equalto", transit_vrf) | list | first -%}
+{% set summ_ns = namespace(pairs=[]) -%}
+{% for v in site.vrfs.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for s in v.summaries.edges | map(attribute="node") | list | sort(attribute="prefix.value") %}{% if s.site.node is not none and s.site.node.name.value == site_name %}{% set summ_ns.pairs = summ_ns.pairs + [(v.name.value, s.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% set site_summaries = summ_ns.pairs | rejectattr("0", "equalto", transit_vrf) | map(attribute="1") | unique | list -%}
+{% macro host(p, n) %}{% set o = p.split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+{% macro subif(att) %}{{ att.vrf.node.name.value }}-{{ att.vlan_id.value }}{% endmacro -%}
+{% macro subif_addr(att) %}{{ (virtual | selectattr("name.value", "equalto", subif(att)) | list | first).ip_addresses.edges[0].node.address.value }}{% endmacro -%}
+{% set router_id = subif_addr(transit_att) | ipaddress_interface("ip") -%}
+#!/bin/sh
+# {{ name }}: DC3 Internal FW stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Routes toward the leaves carry only the FW AS.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+sysctl -qw net.ipv4.tcp_l3mdev_accept=1
+# --- VRFs (FortiOS VRF id -> vrf<id>, table {{ table_base }} + id)
+{% for v in [transit_vrf] + (tenants | map(attribute="vrf.node.name.value") | list) %}
+ip link add vrf{{ vrf_id[v] }} type vrf table {{ table_base + vrf_id[v] }} 2>/dev/null || true
+ip link set vrf{{ vrf_id[v] }} up
+{% endfor %}
+# --- aggregates (LACP; members that exist in the lab)
+{% for a in aggs %}
+ip link add {{ a.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in a.members.edges | map(attribute="node.name.value") | list | sort %}
+if [ -e /sys/class/net/{{ m }} ]; then ip link set {{ m }} down; ip link set {{ m }} mtu {{ a.mtu.value }}; ip link set {{ m }} master {{ a.name.value }}; ip link set {{ m }} up; fi
+{% endfor %}
+ip link set {{ a.name.value }} mtu {{ a.mtu.value }} up
+{% endfor %}
+# --- VLAN sub-interfaces, one per attachment (address = the stand-in's .3 from Infrahub)
+{% for att in attachments %}
+{% set v = att.vrf.node.name.value %}
+ip link add link agg-inside name {{ subif(att) }} type vlan id {{ att.vlan_id.value }} 2>/dev/null || true
+ip link set {{ subif(att) }} master vrf{{ vrf_id[v] }}
+ip addr replace {{ subif_addr(att) }} dev {{ subif(att) }}
+ip link set {{ subif(att) }} mtu {{ (virtual | selectattr("name.value", "equalto", subif(att)) | list | first).mtu.value }} up
+{% endfor %}
+# --- routing daemons (watchfrr starts zebra and staticd; bgpd and bfdd are started here)
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+ip prefix-list PL-DEFAULT seq {{ seq_step }} permit 0.0.0.0/0
+{% for att in tenants %}
+{% set v = att.vrf.node.name.value %}
+{% for p in summ_ns.pairs | selectattr("0", "equalto", v) | map(attribute="1") | list %}
+ip prefix-list PL-{{ v }}-SUMMARY seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+{% endfor %}
+{% for p in site_summaries %}
+ip prefix-list PL-{{ transit_vrf }}-SUMMARY seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+!
+{% for att in tenants %}
+{% set v = att.vrf.node.name.value %}
+route-map RM-{{ v }}-FROM-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-{{ v }}-SUMMARY
+route-map RM-{{ v }}-TO-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+ {{ aspath_set }}
+route-map RM-LEAK-{{ transit_vrf }}-TO-{{ v }} permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+{% endfor %}
+{# FRR applies one import route-map per VRF: the TRANSIT side combines every tenant's summary list #}
+{% for att in tenants %}
+route-map RM-LEAK-TO-{{ transit_vrf }} permit {{ loop.index * seq_step }}
+ match ip address prefix-list PL-{{ att.vrf.node.name.value }}-SUMMARY
+{% endfor %}
+route-map RM-{{ transit_vrf }}-FROM-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+route-map RM-{{ transit_vrf }}-TO-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-{{ transit_vrf }}-SUMMARY
+ {{ aspath_set }}
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_tx }}
+  receive-interval {{ bfd_rx }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+{% for att in [transit_att] + tenants %}
+{% set v = att.vrf.node.name.value %}
+{% set leaves = att.switch_pair.node.members.edges | map(attribute="node") | list | sort(attribute="name.value") %}
+router bgp {{ asn }} vrf vrf{{ vrf_id[v] }}
+ bgp router-id {{ router_id }}
+ bgp graceful-restart
+{% for leaf in leaves %}
+{% set peer = host(att.prefix.node.prefix.value, loop.index) %}
+ neighbor {{ peer }} remote-as {{ leaf.asn.node.asn.value }}
+ neighbor {{ peer }} description {{ leaf.name.value }}
+ neighbor {{ peer }} update-source {{ subif(att) }}
+ neighbor {{ peer }} bfd profile {{ bfd_profile }}
+{% endfor %}
+ address-family ipv4 unicast
+{% for leaf in leaves %}
+{% set peer = host(att.prefix.node.prefix.value, loop.index) %}
+  neighbor {{ peer }} route-map RM-{{ v }}-FROM-LEAF in
+  neighbor {{ peer }} route-map RM-{{ v }}-TO-LEAF out
+{% endfor %}
+{% if v == transit_vrf %}
+{% for t in tenants %}
+  import vrf vrf{{ vrf_id[t.vrf.node.name.value] }}
+{% endfor %}
+  import vrf route-map RM-LEAK-TO-{{ transit_vrf }}
+{% else %}
+  import vrf vrf{{ vrf_id[transit_vrf] }}
+  import vrf route-map RM-LEAK-{{ transit_vrf }}-TO-{{ v }}
+{% endif %}
+ exit-address-family
+exit
+!
+{% endfor %}
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

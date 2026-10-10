@@ -1,0 +1,271 @@
+---
+# DC3 IP plan: 10.24.x tenants, 10.27.x infrastructure, 10.250.32.x management, 198.18.3.x public.
+# Not in DC3: BGW Multi-Site VIP, DCI blocks and circuits, OOB carving beyond the
+# Management1 /24. Load after dc3-02-site.yml (DC3 instance: main; an Infrahub instance that also holds
+# other sites: a branch, for example dc3).
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamPrefix
+  data:
+    # Top level: the DC3 site block.
+    - prefix: 10.24.0.0/14
+      description: DC3 site block
+      status: active
+      member_type: prefix
+    # OOB: only the /20, the Management1 /24 and its gateway (no OOB devices in DC3)
+    - prefix: 10.250.32.0/20
+      description: "DC3 OOB"
+      status: active
+      member_type: prefix
+      role: management
+      site: DC3
+    - prefix: 10.250.32.0/24
+      description: "DC3 network-device mgmt (Management1)"
+      status: active
+      member_type: address
+      role: management
+      site: DC3
+    # Fabric (10.24.x tenants, 10.27.x infrastructure)
+    - prefix: 10.27.4.0/22
+      description: "DC3 fabric p2p /31s"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.24.0.0/16
+      description: "DC3 tenants"
+      status: active
+      member_type: prefix
+    - prefix: 10.27.0.0/16
+      description: "DC3 infrastructure"
+      status: active
+      member_type: prefix
+    - prefix: 10.27.0.0/19
+      description: "DC3 infrastructure in use"
+      status: active
+      member_type: prefix
+    - prefix: 10.27.0.0/24
+      description: "DC3 Loopback0 (router ID, BGP peering)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.27.1.0/24
+      description: "DC3 Loopback1 (VTEP source)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.27.2.0/25
+      description: "DC3 MLAG anycast VTEPs (one per MLAG pair with VTEP)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.27.3.0/24
+      description: "DC3 MLAG Vlan3900 (backup underlay, MLAG control) /31s"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.27.17.0/24
+      description: "DC3 MLAG peer-keepalive /31s"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    # Outside the fabric core: firewall, cloud, ISP, DMZ and public blocks
+    - prefix: 10.27.8.0/22
+      description: "DC3 firewall attachments for tenant VRFs"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.27.8.0/25
+      description: "DC3 Internal FW tenant VRF /29s (fixed slot per VRF)"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.27.9.0/26
+      description: "DC3 VPN-partner FW attachment /29s (border leaves, PARTNER)"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.27.13.0/24
+      description: "DC3 cloud routers: loopbacks .0/28, iBGP link .16/31"
+      status: active
+      member_type: prefix
+      site: DC3
+    - prefix: 10.27.13.0/28
+      description: "DC3 cloud router loopback0"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.27.14.0/24
+      description: "DC3 edge VLAN 3200: VRRP VIP, ISP routers, FW outside legs"
+      status: active
+      member_type: address
+      role: link
+      site: DC3
+    - prefix: 10.27.15.0/24
+      description: "DC3 ISP routers: cross-link /31, loopbacks"
+      status: active
+      member_type: prefix
+      site: DC3
+    - prefix: 10.27.15.16/28
+      description: "DC3 ISP router loopback0"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.27.16.0/24
+      description: "DC3 TRANSIT attachment /29s (fixed slot per device)"
+      status: active
+      member_type: prefix
+      role: link
+      site: DC3
+    - prefix: 10.24.128.0/20
+      description: "DC3 DMZ block (behind the Internet FW)"
+      status: active
+      member_type: prefix
+      site: DC3
+    - prefix: 10.24.128.0/24
+      description: "DC3 DMZ VLAN 1400 (LB VIPs)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.129.0/24
+      description: "DC3 DMZ VLAN 1401 (LB self IPs and SNAT)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.130.0/24
+      description: "DC3 DMZ VLAN 1402 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.131.0/24
+      description: "DC3 DMZ VLAN 1403 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.132.0/24
+      description: "DC3 DMZ VLAN 1404 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.133.0/24
+      description: "DC3 DMZ VLAN 1405 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.134.0/24
+      description: "DC3 DMZ VLAN 1406 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.135.0/24
+      description: "DC3 DMZ VLAN 1407 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.136.0/24
+      description: "DC3 DMZ VLAN 1408 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.137.0/24
+      description: "DC3 DMZ VLAN 1409 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.138.0/24
+      description: "DC3 DMZ VLAN 1410 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.139.0/24
+      description: "DC3 DMZ VLAN 1411 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.140.0/24
+      description: "DC3 DMZ VLAN 1412 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.141.0/24
+      description: "DC3 DMZ VLAN 1413 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.142.0/24
+      description: "DC3 DMZ VLAN 1414 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 10.24.143.0/24
+      description: "DC3 DMZ VLAN 1415 (DMZ servers)"
+      status: active
+      member_type: address
+      site: DC3
+    # Public, lab-only (198.18.3.x)
+    - prefix: 198.18.3.0/24
+      description: "DC3 public (benchmark range 198.18.0.0/15, lab-only)"
+      status: active
+      member_type: prefix
+      site: DC3
+    - prefix: 198.18.3.0/25
+      description: "DC3 Internet FW NAT pool"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 198.18.3.128/28
+      description: "DC3 VPN-partner FW IPsec endpoints"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 198.18.3.144/28
+      description: "DC3 SD-WAN FW (hub) WAN endpoints"
+      status: active
+      member_type: address
+      site: DC3
+    - prefix: 198.18.3.160/27
+      description: "DC3 published services (DMZ inbound)"
+      status: active
+      member_type: address
+      site: DC3
+    # Cloud handoffs
+    - prefix: 10.98.0.16/30
+      description: "DC3 ExpressRoute primary private peering (cloud router 1 .17, Microsoft .18)"
+      status: active
+      member_type: address
+      role: link
+      site: DC3
+    - prefix: 10.98.0.20/30
+      description: "DC3 ExpressRoute secondary private peering (cloud router 2 .21, Microsoft .22)"
+      status: active
+      member_type: address
+      role: link
+      site: DC3
+    - prefix: 169.254.120.0/30
+      description: "DC3 AWS private VIF 1 (cloud router 1 .2, AWS .1); placeholder until AWS generates the peer IPs"
+      status: active
+      member_type: address
+      role: link
+      site: DC3
+    - prefix: 169.254.121.0/30
+      description: "DC3 AWS private VIF 2 (cloud router 2 .2, AWS .1); placeholder until AWS generates the peer IPs"
+      status: active
+      member_type: address
+      role: link
+      site: DC3
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamIPAddress
+  data:
+    # Management1 gateway: .1 of the mgmt /24; the device that holds it in DC3 is not decided
+    - address: 10.250.32.1/24
+      description: "DC3 Management1 gateway"
+      status: active

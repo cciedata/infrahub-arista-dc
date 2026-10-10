@@ -1,0 +1,49 @@
+---
+version: "1.0"
+nodes:
+  - name: Country
+    namespace: Location
+    label: Country
+    icon: mdi:flag
+    inherit_from:
+      - LocationGeneric
+    include_in_menu: true
+    menu_placement: LocationGeneric
+    parent: ""
+    children: LocationMetro
+    attributes:
+      - name: shortname
+        kind: Text
+        unique: true
+
+  - name: Metro
+    namespace: Location
+    label: Metro
+    icon: mdi:city
+    inherit_from:
+      - LocationGeneric
+    include_in_menu: true
+    menu_placement: LocationGeneric
+    parent: LocationCountry
+    children: LocationSite
+    attributes:
+      - name: shortname
+        kind: Text
+        unique: true
+
+  - name: Site
+    namespace: Location
+    label: Site
+    icon: mdi:office-building
+    inherit_from:
+      - LocationGeneric
+      - LocationHosting
+      - CoreArtifactTarget
+    include_in_menu: true
+    menu_placement: LocationGeneric
+    parent: LocationMetro
+    children: ""
+    attributes:
+      - name: shortname
+        kind: Text
+        unique: true

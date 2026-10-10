@@ -1,0 +1,3 @@
+# lab run results (smoke.sh, dc3_postcheck.py, dc3_failtests.py) stay local
+*
+!.gitignore

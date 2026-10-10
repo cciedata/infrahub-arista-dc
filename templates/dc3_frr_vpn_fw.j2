@@ -1,0 +1,136 @@
+{# DC3 VPN-partner FW stand-in (FRR 10.6.0), one POSIX shell script run by containerlab `exec`.
+   Routing of the FortiOS VPN FW: VRF 16 = PARTNER with the inside leg to the
+   border leaves (eBGP: the translated /28s out, 0/0 in), a blackhole + network per translated /28, a static route to each
+   partner's protected networks over its tunnel, source NAT of the partner to its /28; WAN leg (edge VLAN), LO-WAN and the
+   static 0/0 to the ISP routers' VRRP VIP in the default table.
+   Lab stand-in for each partner's IPsec tunnel: a direct link, port name = partner name (the tunnel interface name), /31
+   = the partner's peer_ip and the other address on this side. The VRRP VIP is not in the
+   lab. #}
+{% set partner_vrf = "PARTNER" -%}{% set table_vrf = 16 -%}   {#- FortiOS VRF id of PARTNER -#}
+{% set bfd_tx = 999 -%}{% set bfd_rx = 999 -%}{% set bfd_mult = 3 -%}
+{% set seq_step = 10 -%}
+{% set table_base = 1000 -%}{% set bfd_profile = "FW-BFD" -%}{% set bond_mode = "802.3ad" -%}   {#- kernel table base, BFD profile name, LACP bond mode -#}
+{% set vip_host = 1 -%}{% set wan_lo = "LO-WAN" -%}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set asn = device.asn.node.asn.value -%}
+{% set site_name = device.location.node.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set aggs = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | sort(attribute="name.value") -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set subifs = virtual | rejectattr("parent_interface.node", "none") | list | sort(attribute="name.value") -%}
+{% set wan = virtual | selectattr("name.value", "equalto", wan_lo) | list | first -%}
+{% set partner_att = data.FabricAttachment.edges | map(attribute="node") | list | selectattr("vrf.node.name.value", "equalto", partner_vrf) | list | first -%}
+{% set inside_if = partner_vrf ~ "-" ~ partner_att.vlan_id.value -%}
+{% set out_ns = namespace(intf=none) -%}
+{% for s in subifs %}{% if s.name.value.startswith("OUTSIDE-") %}{% set out_ns.intf = s %}{% endif %}{% endfor -%}
+{% set outside = out_ns.intf -%}
+{% set p_ns = namespace(items=[]) -%}
+{% for p in data.FabricPartner.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for t in p.translated_prefixes.edges | map(attribute="node") | list %}{% if t.site.node is not none and t.site.node.name.value == site_name %}{% set p_ns.items = p_ns.items + [(p.name.value, p.peer_ip.value.split("/")[0], p.protected_prefixes.value | sort, t.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% set partners = p_ns.items -%}
+{% macro host(p, n) %}{% set o = p.split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+{% macro other31(ip) %}{% set o = ip.split(".") %}{% set last = o[3] | int %}{{ o[:3] | join(".") }}.{{ last + 1 if last % 2 == 0 else last - 1 }}{% endmacro -%}
+{% set router_id = (subifs | selectattr("name.value", "equalto", inside_if) | list | first).ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set isp_vip = host(outside.ip_addresses.edges[0].node.address.value | ipaddress_interface("network") | string, vip_host) -%}
+#!/bin/sh
+# {{ name }}: DC3 VPN-partner FW stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Partners: {% for pname, peer, protected, nat in partners %}{{ pname }} (peer {{ peer }}, {{ protected | join(" ") }} -> {{ nat }}){{ ", " if not loop.last }}{% endfor %}.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+sysctl -qw net.ipv4.tcp_l3mdev_accept=1
+# --- VRF {{ table_vrf }} ({{ partner_vrf }}); the WAN leg stays in the default table (FortiOS VRF 0)
+ip link add vrf{{ table_vrf }} type vrf table {{ table_base + table_vrf }} 2>/dev/null || true
+ip link set vrf{{ table_vrf }} up
+# --- aggregates (LACP; members that exist in the lab)
+{% for a in aggs %}
+ip link add {{ a.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in a.members.edges | map(attribute="node.name.value") | list | sort %}
+if [ -e /sys/class/net/{{ m }} ]; then ip link set {{ m }} down; ip link set {{ m }} mtu {{ a.mtu.value }}; ip link set {{ m }} master {{ a.name.value }}; ip link set {{ m }} up; fi
+{% endfor %}
+ip link set {{ a.name.value }} mtu {{ a.mtu.value }} up
+{% endfor %}
+# --- VLAN sub-interfaces: inside ({{ partner_vrf }}, vrf{{ table_vrf }}), outside (edge VLAN, default table)
+{% for s in subifs %}
+ip link add link {{ s.parent_interface.node.name.value }} name {{ s.name.value }} type vlan id {{ s.name.value.split("-")[-1] }} 2>/dev/null || true
+{% if s.name.value == inside_if %}
+ip link set {{ s.name.value }} master vrf{{ table_vrf }}
+{% endif %}
+ip addr replace {{ s.ip_addresses.edges[0].node.address.value }} dev {{ s.name.value }}
+ip link set {{ s.name.value }} mtu {{ s.mtu.value }} up
+{% endfor %}
+# --- {{ wan_lo }} (public WAN endpoint)
+ip link add {{ wan_lo }} type dummy 2>/dev/null || true
+ip addr replace {{ wan.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") }}/32 dev {{ wan_lo }}
+ip link set {{ wan_lo }} up
+# --- partner tunnels (lab: direct links) and source NAT of each partner to its translated /28
+command -v iptables >/dev/null || apk add --no-cache iptables >/dev/null
+{% for pname, peer, protected, nat in partners %}
+if [ -e /sys/class/net/{{ pname }} ]; then ip link set {{ pname }} master vrf{{ table_vrf }}; ip addr replace {{ other31(peer) }}/31 dev {{ pname }}; ip link set {{ pname }} up; fi
+{% for p in protected %}
+iptables -t nat -C POSTROUTING -s {{ p }} -o {{ inside_if }} -j SNAT --to-source {{ nat.split("/")[0] }}-{{ host(nat, (2 ** (32 - (nat.split("/")[1] | int))) - 1) }} 2>/dev/null || iptables -t nat -A POSTROUTING -s {{ p }} -o {{ inside_if }} -j SNAT --to-source {{ nat.split("/")[0] }}-{{ host(nat, (2 ** (32 - (nat.split("/")[1] | int))) - 1) }}
+{% endfor %}
+{% endfor %}
+# --- routing daemons
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+ip route 0.0.0.0/0 {{ isp_vip }}
+vrf vrf{{ table_vrf }}
+{% for pname, peer, protected, nat in partners %}
+{% for p in protected %}
+ ip route {{ p }} {{ peer }}
+{% endfor %}
+ ip route {{ nat }} blackhole
+{% endfor %}
+exit-vrf
+!
+ip prefix-list PL-DEFAULT seq {{ seq_step }} permit 0.0.0.0/0
+{% for pname, peer, protected, nat in partners %}
+ip prefix-list PL-{{ partner_vrf }}-NAT seq {{ loop.index * seq_step }} permit {{ nat }}
+{% endfor %}
+!
+route-map RM-{{ partner_vrf }}-FROM-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-DEFAULT
+route-map RM-{{ partner_vrf }}-TO-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-{{ partner_vrf }}-NAT
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_tx }}
+  receive-interval {{ bfd_rx }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+{% set leaves = partner_att.switch_pair.node.members.edges | map(attribute="node") | list | sort(attribute="name.value") %}
+router bgp {{ asn }} vrf vrf{{ table_vrf }}
+ bgp router-id {{ router_id }}
+ bgp graceful-restart
+{% for leaf in leaves %}
+{% set peer = host(partner_att.prefix.node.prefix.value, loop.index) %}
+ neighbor {{ peer }} remote-as {{ leaf.asn.node.asn.value }}
+ neighbor {{ peer }} description {{ leaf.name.value }}
+ neighbor {{ peer }} update-source {{ inside_if }}
+ neighbor {{ peer }} bfd profile {{ bfd_profile }}
+{% endfor %}
+ address-family ipv4 unicast
+{% for pname, peer, protected, nat in partners %}
+  network {{ nat }}
+{% endfor %}
+{% for leaf in leaves %}
+{% set peer = host(partner_att.prefix.node.prefix.value, loop.index) %}
+  neighbor {{ peer }} route-map RM-{{ partner_vrf }}-FROM-LEAF in
+  neighbor {{ peer }} route-map RM-{{ partner_vrf }}-TO-LEAF out
+{% endfor %}
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

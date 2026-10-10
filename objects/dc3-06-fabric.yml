@@ -1,0 +1,64 @@
+---
+# DC3 tenant VRFs: PROD, DEV, CITRIX, PARTNER, REPLICATION, TRANSIT with their L3 VNIs.
+# Load after dc3-02-site.yml and before the dc3_site generator run.
+#
+# Sites [DC3] and the DC3 summaries only.
+#  - The VRF name is the object's key (unique; segments reference VRFs by name), and the EOS VRF name must be
+#    PROD etc..
+#  - The DC3 templates read only the summaries whose site is DC3.
+#
+# DC3 VRF blocks, loaded first so the summaries can reference them.
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: IpamPrefix
+  data:
+    - {prefix: 10.24.0.0/18, description: "PROD VRF block (DC3)", status: active, member_type: prefix, site: DC3}
+    - {prefix: 10.24.64.0/18, description: "DEV VRF block (DC3)", status: active, member_type: prefix, site: DC3}
+    - {prefix: 10.24.144.0/20, description: "CITRIX VRF block (DC3)", status: active, member_type: prefix, site: DC3}
+    - {prefix: 10.24.160.0/21, description: "PARTNER VRF block, NAT /28s (DC3)", status: active, member_type: prefix, site: DC3}
+---
+apiVersion: infrahub.app/v1
+kind: Object
+spec:
+  kind: FabricVRF
+  data:
+    # L3 VNI and L3 VNI VLAN per VRF (EOS needs no L3 VNI VLAN: `vxlan vrf <VRF> vni <VNI>`)
+    - name: PROD
+      l3_vni: 50001
+      l3_vni_vlan: 2501
+      multisite: true
+      sites: [DC3]
+      summaries:
+        - ["default", "10.24.0.0/18"]
+    - name: DEV
+      l3_vni: 50002
+      l3_vni_vlan: 2502
+      multisite: true
+      sites: [DC3]
+      summaries:
+        - ["default", "10.24.64.0/18"]
+    - name: CITRIX
+      l3_vni: 50022
+      l3_vni_vlan: 2522
+      multisite: false
+      sites: [DC3]
+      summaries:
+        - ["default", "10.24.144.0/20"]
+    - name: PARTNER
+      l3_vni: 50031
+      l3_vni_vlan: 2531
+      multisite: false
+      sites: [DC3]
+      summaries:
+        - ["default", "10.24.160.0/21"]
+    - name: REPLICATION
+      l3_vni: 50041
+      l3_vni_vlan: 2541
+      multisite: true
+      sites: [DC3]
+    - name: TRANSIT
+      l3_vni: 50100
+      l3_vni_vlan: 2599
+      multisite: false
+      sites: [DC3]

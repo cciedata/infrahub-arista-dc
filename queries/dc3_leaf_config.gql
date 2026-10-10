@@ -1,0 +1,117 @@
+# DC3 server leaves (MLAG pair L1-L2, ESI members L3-L10, single L11-L20), Arista EOS.
+# Same peer method as dc3_spine_config.gql (core /31 + description -> FabricAutonomousSystem.devices).
+# switch_pair: MLAG domain (domain-id = pair name; anycast VTEP) or ESI pair; the members'
+# keepalive addresses give the MLAG heartbeat peer.
+# Site segments (VLAN, L2 VNI, VRF, L3 VNI, prefix) and the access ports of the lab test hosts.
+query Dc3LeafConfig($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        location {
+          node {
+            ... on LocationSite {
+              name { value }
+              # the site's segments (reverse of FabricSegment.sites)
+              segments {
+                edges {
+                  node {
+                    name { value }
+                    vlan_id { value }
+                    l2_vni { value }
+                    prefix { node { prefix { value } } }
+                    vrf { node { name { value } l3_vni { value } } }
+                  }
+                }
+              }
+            }
+          }
+        }
+        asn { node { asn { value } } }
+        switch_pair {
+          node {
+            __typename
+            name { value }
+            ... on FabricVpcDomain {
+              domain_id { value }
+              anycast_vtep { node { address { value } } }
+            }
+            members {
+              edges {
+                node {
+                  name { value }
+                  interfaces(role__value: "vpc_keepalive") {
+                    edges {
+                      node {
+                        name { value }
+                        ... on InterfaceLayer3 {
+                          ip_addresses { edges { node { address { value } } } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 {
+                ip_addresses { edges { node { address { value } } } }
+              }
+              ... on InterfacePhysical {
+                port_channel { node { name { value } } }
+                access_segment { node { name { value } vlan_id { value } } }
+              }
+              ... on InterfacePortChannel {
+                members { edges { node { name { value } } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  FabricAutonomousSystem {
+    edges {
+      node {
+        asn { value }
+        devices {
+          edges {
+            node {
+              name { value }
+              role { value }
+              interfaces(name__value: "Loopback0") {
+                edges {
+                  node {
+                    name { value }
+                    ... on InterfaceLayer3 {
+                      ip_addresses { edges { node { address { value } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  CoreIPAddressPool {
+    edges {
+      node {
+        name { value }
+        resources { edges { node { ... on IpamPrefix { prefix { value } } } } }
+      }
+    }
+  }
+}

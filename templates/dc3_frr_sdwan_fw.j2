@@ -1,0 +1,167 @@
+{# DC3 SD-WAN hub FW stand-in (FRR 10.6.0), one POSIX shell script run by containerlab `exec`.
+   Routing of the FortiOS SD-WAN hub: BGP AS 65400 (overlay) with local-as
+   65320 no-prepend replace-as toward the border leaves in TRANSIT; the hub reflects branch routes to the branches over the
+   overlay (dynamic neighbors in the overlay /21); aggregates 10.64.0.0/12 (not summary-only, reflected) and the cloud blocks
+   (summary-only); WAN leg (edge VLAN), LO-WAN and the static 0/0 to the ISP routers' VRRP VIP in the default table.
+   Lab stand-in for the ADVPN tunnel: a Linux bridge named ADVPN-HUB with one port per branch stand-in (port name = branch
+   name), carrying the hub address from Infrahub. No IPsec, no SD-WAN rules.
+   The VRRP VIP is not in the lab, so the WAN default route is configured but not usable there. #}
+{% set overlay_asn = 65400 -%}                   {#- SD-WAN overlay AS -#}
+{% set table_vrf = 1 -%}                         {#- TRANSIT VRF id, the overlay shares it -#}
+{% set transit_vrf = "TRANSIT" -%}
+{% set bfd_tx = 999 -%}{% set bfd_rx = 999 -%}{% set bfd_mult = 3 -%}
+{% set seq_step = 10 -%}
+{% set table_base = 1000 -%}{% set bfd_profile = "FW-BFD" -%}{% set bond_mode = "802.3ad" -%}   {#- kernel table base, BFD profile name, LACP bond mode -#}
+{% set vip_host = 1 -%}                          {#- edge VLAN .1 = VRRP VIP -#}
+{% set wan_lo = "LO-WAN" -%}{% set tunnel = "ADVPN-HUB" -%}{% set branch_group = "BRANCHES" -%}   {#- WAN loopback, tunnel and branch group names -#}
+{% set branch_summary = "10.64.0.0/12" -%}{% set branch_lan_le = 24 -%}   {#- branch summary, branch LAN le -#}
+{% set cloud_summaries = ["172.16.0.0/13", "172.30.0.0/15"] -%}{% set cloud_in_le = 24 -%}   {#- cloud blocks, le accepted -#}
+{% set reflect_branches = true -%}               {#- hub reflects branch routes to the branches -#}
+{% set no_branch_vrfs = ["PARTNER"] -%}          {#- never PARTNER toward the branches -#}
+{# Values from the graph #}
+{% set device = data.DcimDevice.edges[0].node -%}
+{% set name = device.name.value -%}
+{% set fabric_side_asn = device.asn.node.asn.value -%}
+{% set site = device.location.node -%}
+{% set site_name = site.name.value -%}
+{% set interfaces = device.interfaces.edges | map(attribute="node") | list -%}
+{% set aggs = interfaces | selectattr("__typename", "equalto", "InterfacePortChannel") | list | sort(attribute="name.value") -%}
+{% set virtual = interfaces | selectattr("__typename", "equalto", "InterfaceVirtual") | list -%}
+{% set subifs = virtual | rejectattr("parent_interface.node", "none") | list | sort(attribute="name.value") -%}
+{% set wan = virtual | selectattr("name.value", "equalto", wan_lo) | list | first -%}
+{% set tun = virtual | selectattr("name.value", "equalto", tunnel) | list | first -%}
+{% set transit_att = data.FabricAttachment.edges | map(attribute="node") | list | selectattr("vrf.node.name.value", "equalto", transit_vrf) | list | first -%}
+{% set inside_if = transit_vrf ~ "-" ~ transit_att.vlan_id.value -%}
+{% set out_ns = namespace(intf=none) -%}
+{% for s in subifs %}{% if s.name.value.startswith("OUTSIDE-") %}{% set out_ns.intf = s %}{% endif %}{% endfor -%}
+{% set outside = out_ns.intf -%}
+{% set branches = data.FabricBranch.edges | map(attribute="node") | list | sort(attribute="branch_id.value") -%}
+{% set br_ns = namespace(items=[]) -%}
+{% for b in branches %}{% if site_name in (b.hubs.edges | map(attribute="node.name.value") | list) %}{% set br_ns.items = br_ns.items + [b] %}{% endif %}{% endfor -%}
+{% set summ_ns = namespace(pairs=[]) -%}
+{% for v in site.vrfs.edges | map(attribute="node") | list | sort(attribute="name.value") %}{% for s in v.summaries.edges | map(attribute="node") | list | sort(attribute="prefix.value") %}{% if s.site.node is not none and s.site.node.name.value == site_name %}{% set summ_ns.pairs = summ_ns.pairs + [(v.name.value, s.prefix.value)] %}{% endif %}{% endfor %}{% endfor -%}
+{% set dc_summaries = summ_ns.pairs | rejectattr("0", "equalto", transit_vrf) | rejectattr("0", "in", no_branch_vrfs) | map(attribute="1") | unique | list -%}
+{% set sdwan_allow = dc_summaries + cloud_summaries -%}
+{% macro host(p, n) %}{% set o = p.split("/")[0].split(".") %}{{ o[:3] | join(".") }}.{{ o[3] | int + n }}{% endmacro -%}
+{% set router_id = (subifs | selectattr("name.value", "equalto", inside_if) | list | first).ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") -%}
+{% set tun_addr = tun.ip_addresses.edges[0].node.address.value -%}
+{% set tun_net = tun_addr | ipaddress_interface("network") | string -%}
+{% set isp_vip = host(outside.ip_addresses.edges[0].node.address.value | ipaddress_interface("network") | string, vip_host) -%}
+#!/bin/sh
+# {{ name }}: DC3 SD-WAN hub FW stand-in (FRR). Rendered by Infrahub, do not edit.
+# Management {{ device.primary_address.node.address.value }} (containerlab mgmt-ipv4 of this node)
+# Branch stand-ins on the overlay bridge {{ tunnel }}: {{ br_ns.items | map(attribute="name.value") | join(", ") }}.
+set -eu
+sysctl -qw net.ipv4.ip_forward=1
+sysctl -qw net.ipv4.tcp_l3mdev_accept=1
+# --- VRF {{ table_vrf }} (TRANSIT + overlay); the WAN leg stays in the default table (FortiOS VRF 0)
+ip link add vrf{{ table_vrf }} type vrf table {{ table_base + table_vrf }} 2>/dev/null || true
+ip link set vrf{{ table_vrf }} up
+# --- aggregates (LACP; members that exist in the lab)
+{% for a in aggs %}
+ip link add {{ a.name.value }} type bond mode {{ bond_mode }} 2>/dev/null || true
+{% for m in a.members.edges | map(attribute="node.name.value") | list | sort %}
+if [ -e /sys/class/net/{{ m }} ]; then ip link set {{ m }} down; ip link set {{ m }} mtu {{ a.mtu.value }}; ip link set {{ m }} master {{ a.name.value }}; ip link set {{ m }} up; fi
+{% endfor %}
+ip link set {{ a.name.value }} mtu {{ a.mtu.value }} up
+{% endfor %}
+# --- VLAN sub-interfaces: inside (TRANSIT, vrf{{ table_vrf }}), outside (edge VLAN, default table)
+{% for s in subifs %}
+ip link add link {{ s.parent_interface.node.name.value }} name {{ s.name.value }} type vlan id {{ s.name.value.split("-")[-1] }} 2>/dev/null || true
+{% if s.name.value == inside_if %}
+ip link set {{ s.name.value }} master vrf{{ table_vrf }}
+{% endif %}
+ip addr replace {{ s.ip_addresses.edges[0].node.address.value }} dev {{ s.name.value }}
+ip link set {{ s.name.value }} mtu {{ s.mtu.value }} up
+{% endfor %}
+# --- {{ wan_lo }} (public WAN endpoint) and the overlay bridge {{ tunnel }} (stand-in for the ADVPN hub tunnel)
+ip link add {{ wan_lo }} type dummy 2>/dev/null || true
+ip addr replace {{ wan.ip_addresses.edges[0].node.address.value | ipaddress_interface("ip") }}/32 dev {{ wan_lo }}
+ip link set {{ wan_lo }} up
+ip link add {{ tunnel }} type bridge 2>/dev/null || true
+ip link set {{ tunnel }} master vrf{{ table_vrf }}
+{% for b in br_ns.items %}
+if [ -e /sys/class/net/{{ b.name.value }} ]; then ip link set {{ b.name.value }} master {{ tunnel }}; ip link set {{ b.name.value }} up; fi
+{% endfor %}
+ip addr replace {{ tun_addr }} dev {{ tunnel }}
+ip link set {{ tunnel }} up
+# --- routing daemons
+pgrep -x bfdd >/dev/null || /usr/lib/frr/bfdd -d -A 127.0.0.1
+pgrep -x bgpd >/dev/null || /usr/lib/frr/bgpd -d -A 127.0.0.1
+sleep 2
+cat > /etc/frr/frr.conf <<'FRREOF'
+hostname {{ name }}
+service integrated-vtysh-config
+!
+ip route 0.0.0.0/0 {{ isp_vip }}
+!
+{% for p in dc_summaries %}
+ip prefix-list PL-SDWAN-FROM-LEAF seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+{% for p in cloud_summaries %}
+ip prefix-list PL-SDWAN-FROM-LEAF seq {{ (dc_summaries | length + loop.index) * seq_step }} permit {{ p }} le {{ cloud_in_le }}
+{% endfor %}
+{% for p in sdwan_allow %}
+ip prefix-list PL-SDWAN-ALLOW seq {{ loop.index * seq_step }} permit {{ p }}
+{% endfor %}
+ip prefix-list PL-BRANCH-LAN seq {{ seq_step }} permit {{ branch_summary }} le {{ branch_lan_le }}
+ip prefix-list PL-BRANCH-SUMMARY seq {{ seq_step }} permit {{ branch_summary }}
+!
+route-map RM-{{ transit_vrf }}-FROM-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-SDWAN-FROM-LEAF
+route-map RM-{{ transit_vrf }}-TO-LEAF permit {{ seq_step }}
+ match ip address prefix-list PL-BRANCH-SUMMARY
+route-map RM-FROM-BRANCH permit {{ seq_step }}
+ match ip address prefix-list PL-BRANCH-LAN
+route-map RM-TO-BRANCH permit {{ seq_step }}
+ match ip address prefix-list PL-SDWAN-ALLOW
+{% if reflect_branches %}
+route-map RM-TO-BRANCH permit {{ 2 * seq_step }}
+ match ip address prefix-list PL-BRANCH-LAN
+{% endif %}
+!
+bfd
+ profile {{ bfd_profile }}
+  transmit-interval {{ bfd_tx }}
+  receive-interval {{ bfd_rx }}
+  detect-multiplier {{ bfd_mult }}
+  no echo-mode
+ exit
+exit
+!
+{% set leaves = transit_att.switch_pair.node.members.edges | map(attribute="node") | list | sort(attribute="name.value") %}
+router bgp {{ overlay_asn }} vrf vrf{{ table_vrf }}
+ bgp router-id {{ router_id }}
+ bgp graceful-restart
+{% for leaf in leaves %}
+{% set peer = host(transit_att.prefix.node.prefix.value, loop.index) %}
+ neighbor {{ peer }} remote-as {{ leaf.asn.node.asn.value }}
+ neighbor {{ peer }} local-as {{ fabric_side_asn }} no-prepend replace-as
+ neighbor {{ peer }} description {{ leaf.name.value }}
+ neighbor {{ peer }} update-source {{ inside_if }}
+ neighbor {{ peer }} bfd profile {{ bfd_profile }}
+{% endfor %}
+ neighbor {{ branch_group }} peer-group
+ neighbor {{ branch_group }} remote-as {{ overlay_asn }}
+ neighbor {{ branch_group }} update-source {{ tunnel }}
+ bgp listen range {{ tun_net }} peer-group {{ branch_group }}
+ address-family ipv4 unicast
+{% for p in [branch_summary] + cloud_summaries %}
+  aggregate-address {{ p }}{{ "" if (reflect_branches and p == branch_summary) else " summary-only" }}
+{% endfor %}
+{% for leaf in leaves %}
+{% set peer = host(transit_att.prefix.node.prefix.value, loop.index) %}
+  neighbor {{ peer }} route-map RM-{{ transit_vrf }}-FROM-LEAF in
+  neighbor {{ peer }} route-map RM-{{ transit_vrf }}-TO-LEAF out
+{% endfor %}
+  neighbor {{ branch_group }} next-hop-self
+{% if reflect_branches %}
+  neighbor {{ branch_group }} route-reflector-client
+{% endif %}
+  neighbor {{ branch_group }} route-map RM-FROM-BRANCH in
+  neighbor {{ branch_group }} route-map RM-TO-BRANCH out
+ exit-address-family
+exit
+FRREOF
+vtysh -f /etc/frr/frr.conf
+echo "{{ name }} stand-in ready"

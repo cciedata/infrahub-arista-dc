@@ -1,0 +1,65 @@
+# DC3 spine (Arista EOS) fabric core.
+# Peers are found through the device's own links: the peer IP is the other address of each
+# core /31, the peer device is the first word of the interface description ( "<peer device> <peer interface>").
+# The peer ASN and Loopback0 come from FabricAutonomousSystem.devices.
+# The prefix-list pools come from the DC3 address pools (resources = source prefixes, as in scripts/dc3_create_pools.py).
+query Dc3SpineConfig($device: String!) {
+  DcimDevice(name__value: $device) {
+    count
+    edges {
+      node {
+        name { value }
+        role { value }
+        location { node { ... on LocationSite { name { value } } } }
+        asn { node { asn { value } } }
+        interfaces {
+          edges {
+            node {
+              __typename
+              name { value }
+              description { value }
+              role { value }
+              mtu { value }
+              ... on InterfaceLayer3 {
+                ip_addresses { edges { node { address { value } } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  FabricAutonomousSystem {
+    edges {
+      node {
+        asn { value }
+        devices {
+          edges {
+            node {
+              name { value }
+              role { value }
+              interfaces(name__value: "Loopback0") {
+                edges {
+                  node {
+                    name { value }
+                    ... on InterfaceLayer3 {
+                      ip_addresses { edges { node { address { value } } } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  CoreIPAddressPool {
+    edges {
+      node {
+        name { value }
+        resources { edges { node { ... on IpamPrefix { prefix { value } } } } }
+      }
+    }
+  }
+}
