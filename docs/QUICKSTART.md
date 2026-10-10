@@ -65,7 +65,8 @@ Chromium (only to rebuild docs/diagrams/DC3-diagrams.pdf), VS Code (step 7).
 cEOS-lab cannot be redistributed, so you download it yourself:
 1. Log in at https://www.arista.com/en/support/software-download.
 2. Open **EOS → cEOS-lab → 4.36.2F** and download `cEOS64-lab-4.36.2F.tar.xz`.
-3. Copy it into your Ubuntu home folder (WSL: Windows sees it as `\\wsl$\Ubuntu-24.04\home\<you>`).
+3. Copy it into your Ubuntu home folder. On Windows with WSL2, from your Downloads folder:
+   `cp /mnt/c/Users/<windows user>/Downloads/cEOS64-lab-4.36.2F.tar.xz ~/`
 
 ```
 docker import ~/cEOS64-lab-4.36.2F.tar.xz ceos:4.36.2F
@@ -110,7 +111,18 @@ uv run bash scripts/bootstrap.sh
 Expected: PASS lines for steps 0 and 3 to 10, then a line starting with `DONE:`. The first `docker compose up` downloads
 the Infrahub images (a few minutes). Then `ls lab/configs | wc -l` prints 43.
 
-Infrahub's web UI is now at http://localhost:8000. User `admin`, password = `INFRAHUB_INITIAL_ADMIN_PASSWORD` in `.env`.
+### Open Infrahub in the browser
+
+Infrahub runs at http://localhost:8000 (on Windows with WSL2, open it in the Windows browser; WSL forwards the port).
+Log in as `admin` with the password the `.env` step generated:
+```
+grep '^INFRAHUB_INITIAL_ADMIN_PASSWORD=' .env | cut -d= -f2-
+```
+It is not `infrahub`, the default of a plain Infrahub install; if your browser fills that in, replace it.
+
+Worth a look after the build: **Devices** (30 switches and 8 stand-ins of site DC3), and on a device page its
+**Interfaces** and **IP addresses**. The rendered configs are files in `lab/configs/`, not stored in Infrahub. ZTP
+(step 8) writes `ztp_state` on the device page.
 
 Each step of this command, with what it checks and how to do it by hand: docs/BUILD.md.
 

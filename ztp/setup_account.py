@@ -95,6 +95,20 @@ def main():
                          '{ ok object { id identifier { value } } } }' % (ns, nm, action, known[decision]))["CoreObjectPermissionCreate"]["object"]
             print("permission created:", pid["identifier"]["value"]); pid = pid["id"]
         ids.append(pid)
+    if STANDALONE:
+        # DC3 lives on main here: Infrahub refuses every write to the default branch without the global permission
+        # edit_default_branch (identifier global:edit_default_branch:allow_all), whatever the object permissions say
+        gp = gql(A, "{ CoreGlobalPermission { edges { node { id identifier { value } action { value } decision { value } } } } }"
+                 )["CoreGlobalPermission"]["edges"]
+        found = [e for e in gp if e["node"]["action"]["value"] == "edit_default_branch"
+                 and e["node"]["decision"]["value"] == known["allow_all"]]
+        if found:
+            ids.append(found[0]["node"]["id"]); print("permission exists:", found[0]["node"]["identifier"]["value"])
+        else:
+            g = gql(A, 'mutation { CoreGlobalPermissionCreate(data: {action: {value: "edit_default_branch"}, decision: {value: %d}, '
+                       'description: {value: "DC3 ZTP callback"}}) { ok object { id identifier { value } } } }'
+                    % known["allow_all"])["CoreGlobalPermissionCreate"]["object"]
+            ids.append(g["id"]); print("permission created:", g["identifier"]["value"])
     plist = ", ".join('{id: "%s"}' % i for i in ids)
     rid = find(A, "CoreAccountRole", "name", ROLE)
     if not rid:  # an existing role gets the full permission list again below (adds to a role)
@@ -141,10 +155,15 @@ def main():
     if not d:
         sys.exit(f"STOP: {TEST_DEV} not found on branch {BRANCH}")
     d = d[0]["node"]; cur = d["serial_number"]["value"]; val = '"%s"' % cur if cur else "null"
+    # a real change, then the old value back: Infrahub may not check permissions on an update that changes nothing
+    probe = "dc3-ztp-permission-test"
+    upd = 'mutation { DcimDeviceUpdate(data: {id: "%s", serial_number: {value: %s}}) { ok } }'
     try:
-        gql(T, 'mutation { DcimDeviceUpdate(data: {id: "%s", serial_number: {value: %s}}) { ok } }' % (d["id"], val), BRANCH)
-        print(f"TEST branch {BRANCH}: {NAME} may update {TEST_DEV} (serial_number {cur}, unchanged): OK")
+        gql(T, upd % (d["id"], '"%s"' % probe), BRANCH)
+        gql(T, upd % (d["id"], val), BRANCH)
+        print(f"TEST branch {BRANCH}: {NAME} may update {TEST_DEV} (serial_number changed and set back to {cur}): OK")
     except RuntimeError as e:
+        gql(A, upd % (d["id"], val), BRANCH)
         print(f"TEST branch {BRANCH}: REFUSED {e}"); sys.exit(4)
     try:
         n_sites = gql(T, "{ LocationSite { count } }", BRANCH)["LocationSite"]["count"]

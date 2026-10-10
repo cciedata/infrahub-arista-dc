@@ -119,7 +119,14 @@ step "fill delivery-time secrets into lab/configs (missing secret = line dropped
 python3 "$LAB/dc3_secrets.py" fill "$LAB/configs" 2>&1 | tee "$RES/secrets-fill.txt" | grep -c WARNING | sed 's/^/  warnings: /'
 step "deploy $TOPO"
 DEPLOYED=1
-if containerlab deploy -t "$TOPO" --reconfigure; then S_DEPLOY="ok"; else S_DEPLOY="FAILED rc $?"; exit 6; fi
+containerlab deploy -t "$TOPO" --reconfigure 2>&1 | tee "$RES/deploy.txt"; rc=${PIPESTATUS[0]}
+if [ "$rc" = 0 ]; then S_DEPLOY="ok"
+# containerlab's post-deploy step can time out on slow cEOS boots ("channel timeout sending input to device") while the
+# switches still come up; then go on: the EOS wait and the post-check below show whether they did
+elif grep -q 'post-deploy: errTimeoutError: channel timeout' "$RES/deploy.txt" \
+     && ! grep ' ERRO ' "$RES/deploy.txt" | grep -vq 'post-deploy: errTimeoutError: channel timeout'; then
+  S_DEPLOY="ok (containerlab post-deploy timeouts only; see boot and postcheck)"
+else S_DEPLOY="FAILED rc $rc"; exit 6; fi
 
 # ---------------------------------------------------------------- wait for EOS
 step "wait for EOS (Cli show version, max ${BOOT_TIMEOUT} s)"

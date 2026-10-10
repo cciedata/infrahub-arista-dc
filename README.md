@@ -1,13 +1,39 @@
 # infrahub-arista-dc
 
-An Arista EOS EVPN/VXLAN datacenter, DC3: 30 switches (2 spines and 28 leaves of 7 roles: server leaves as an MLAG pair,
-EVPN ESI pairs and single leaves, a border-leaf pair, a service-leaf pair, an edge pair and a DMZ pair) with an eBGP underlay, EVPN / VXLAN overlay and tenant VRFs. It is
-modelled in Infrahub, built by the Infrahub generator `dc3_site`, and rendered by Jinja2 templates into 30 EOS
-startup-configs and 13 FRR stand-in scripts, then tested in a containerlab lab with cEOS-lab and FRR.
+[![tests](https://github.com/cciedata/infrahub-arista-dc/actions/workflows/tests.yml/badge.svg)](https://github.com/cciedata/infrahub-arista-dc/actions/workflows/tests.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-With this repo and Docker you start an empty Infrahub 1.11.2, load the schema and the data, run the generator and render
-the same files as `tests/expected`. **Start here: [docs/QUICKSTART.md](docs/QUICKSTART.md)** (from an empty machine
-to a running lab, step by step); every build step in detail: [docs/BUILD.md](docs/BUILD.md).
+I built this to run a whole datacenter network as code. DC3 is an Arista EOS EVPN/VXLAN fabric with 2 spines and 28
+leaves, plus FRR containers standing in for the firewalls, ISPs and clouds around it.
+
+Everything starts in Infrahub. A generator turns the design into devices, links and IP addresses, and Jinja2 templates
+turn that into the switch configs. I don't edit configs by hand: if something has to change, it changes in the data.
+The lab runs in containerlab with cEOS-lab, and Infrahub itself comes up from one compose file, so the whole thing can
+be rebuilt from an empty machine.
+
+![DC3 physical topology](docs/diagrams/topology.png)
+
+## Where it stands
+
+The full lab is 30 switches and 22 FRR nodes. On the last full run all 1525 pre-checks passed, and all 30 switches
+provisioned themselves with ZTP in 425 seconds. 15 of the 16 failure tests pass; test 6 is still open. A smaller
+6-node version runs on a 16 GB laptop, and 135 unit tests run on every push.
+
+## What's in it
+
+- The fabric: one MLAG server-leaf pair, EVPN ESI pairs L3-L10, single leaves L11-L20, and border, service, edge and
+  DMZ pairs. eBGP underlay with BFD, EVPN overlay, an anycast gateway and five tenant VRFs.
+- The edge: internal and internet firewalls, an SD-WAN hub with two branches, a VPN partner, two ISPs, and AWS and
+  Azure, all as FRR containers.
+- ZTP: a blank switch gets an address from DHCP, pulls its config from Infrahub, reboots, and gets checked over eAPI.
+- The rendered config of every device, in [`tests/expected/`](tests/expected).
+- A 17-page set of diagrams, in [`docs/diagrams/DC3-diagrams.pdf`](docs/diagrams/DC3-diagrams.pdf).
+
+## Try it
+
+[docs/QUICKSTART.md](docs/QUICKSTART.md) takes you from an empty Ubuntu machine (Linux, or Windows with WSL2) to a
+running fabric. The 6-node lab needs a 16 GB laptop; the full lab needs a 64 GB Linux host. More detail is in
+[docs/BUILD.md](docs/BUILD.md) (every build step) and [docs/DESIGN.md](docs/DESIGN.md) (the design on one page).
 
 ## Repository map
 
