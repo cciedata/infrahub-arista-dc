@@ -160,6 +160,8 @@ Expected: 4 neighbors in state `Estab`.
 
 ## 6b. Full lab (30 switches, about 45 GB)
 
+`docker compose stop` (third line) frees memory for the lab: the lab does not need Infrahub once the configs are rendered.
+On a host with plenty of memory (well over 64 GB) you can skip that line. Step 8 (ZTP) starts Infrahub again.
 ```
 containerlab destroy -t lab/dc3-smoke.clab.yml --cleanup 2>/dev/null || true
 python3 scripts/dc3_lab_topology.py
